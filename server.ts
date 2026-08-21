@@ -1,178 +1,35 @@
 import express from "express";
+import cors from "cors";
 import path from "path";
-import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import type { 
   Service, 
   Appointment, 
-  StudioConfig, 
   DayAvailability, 
   TimeSlot, 
   DashboardStats 
 } from "./src/types.js";
+import {
+  initDatabase,
+  getServices,
+  createService,
+  updateService,
+  deleteService,
+  getAppointments,
+  createAppointment,
+  updateAppointment,
+  deleteAppointment,
+  getStudioConfig,
+  updateStudioConfig,
+  isDatabasePostgres
+} from "./src/server/db.js";
 
 const app = express();
 const PORT = 3000;
 
+// Enable CORS and JSON body parser
+app.use(cors());
 app.use(express.json());
-
-// In-Memory Database with optional JSON file backup
-const DATA_DIR = path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "gwen_db.json");
-
-// Default initial services
-const defaultServices: Service[] = [
-  {
-    id: "1",
-    nombre: "Manicura Clásica & Rusa",
-    slug: "manicura-clasica",
-    categoria: "cuidado",
-    descripcion: "Limpieza profunda combinada, repujado y corte prolijo de cutículas, limado y nutrición para manos impecables.",
-    duracionMinutos: 45,
-    precio: 14000,
-    esPopular: false,
-    icono: "💅",
-    detalles: [
-      "Técnica rusa combinada",
-      "Nutrición profunda con aceites orgánicos",
-      "Esmaltado tradicional o brillo protector",
-      "Exfoliación suave de manos"
-    ],
-    activo: true
-  },
-  {
-    id: "2",
-    nombre: "Esmaltado Semipermanente",
-    slug: "semipermanente",
-    categoria: "esmaltado",
-    descripcion: "Color brillante y de alta adherencia que se mantiene intacto por 2 a 3 semanas. Gran variedad de tonos de temporada.",
-    duracionMinutos: 60,
-    precio: 18000,
-    esPopular: false,
-    icono: "✨",
-    detalles: [
-      "Preparación rusa de cutículas",
-      "Capa base niveladora fortalecedora",
-      "Más de 80 tonos premium disponibles",
-      "Top coat ultra brillante o mate satinado"
-    ],
-    activo: true
-  },
-  {
-    id: "3",
-    nombre: "Soft Gel System",
-    slug: "soft-gel",
-    categoria: "esculpidas",
-    descripcion: "Extensiones ultralivianas de gel que cuidan tu uña natural con máxima resistencia y flexibilidad. El método estrella.",
-    duracionMinutos: 90,
-    precio: 26000,
-    esPopular: true,
-    icono: "🌸",
-    detalles: [
-      "Tip completo 100% soak-off gel",
-      "Largo y forma a elección (Almond, Coffin, Square, Stiletto)",
-      "Durabilidad de 3 a 4 semanas sin levantamientos",
-      "Incluye esmaltado liso a elección"
-    ],
-    activo: true
-  },
-  {
-    id: "4",
-    nombre: "Kapping Gel Fortalecedor",
-    slug: "kapping",
-    categoria: "cuidado",
-    descripcion: "Fino recubrimiento en gel o acrigel sobre la uña natural para evitar quiebres y permitir que crezca fuerte y sana.",
-    duracionMinutos: 75,
-    precio: 22000,
-    esPopular: false,
-    icono: "💎",
-    detalles: [
-      "Ideal para uñas frágiles, quebradizas o escamadas",
-      "Nivelación y arquitectura perfecta",
-      "Refuerzo estructural sin grosor excesivo",
-      "Incluye esmaltado semipermanente"
-    ],
-    activo: true
-  },
-  {
-    id: "5",
-    nombre: "Nail Art & Diseños Exclusivos",
-    slug: "nail-art",
-    categoria: "arte",
-    descripcion: "Creaciones artísticas a mano alzada, efectos chrome, foil dorado, degradados aura, flores y pedrería fina.",
-    duracionMinutos: 90,
-    precio: 25000,
-    esPopular: true,
-    icono: "🎨",
-    detalles: [
-      "Mano alzada personalizada",
-      "Tendencias: Chrome, Glazed Donut, Aura, French 3D",
-      "Aplicación de foil, microbrillos y cristalería",
-      "Asesoramiento estético personalizado"
-    ],
-    activo: true
-  },
-  {
-    id: "6",
-    nombre: "Esculpidas en Polygel / Acrílico",
-    slug: "esculpidas",
-    categoria: "esculpidas",
-    descripcion: "Construcción escultural con molde milimétrico para formas impecables, resistencia superior y máximo detalle.",
-    duracionMinutos: 120,
-    precio: 32000,
-    esPopular: false,
-    icono: "👑",
-    detalles: [
-      "Estructura personalizada con moldes",
-      "Control de apex y curva C perfecta",
-      "Máxima resistencia para uñas exigentes",
-      "Incluye esmaltado semipermanente"
-    ],
-    activo: true
-  },
-  {
-    id: "7",
-    nombre: "Retiro Seguro & Tratamiento",
-    slug: "retiro",
-    categoria: "cuidado",
-    descripcion: "Remoción profesional no invasiva mediante torno de precisión o método soak-off, preservando la placa ungueal.",
-    duracionMinutos: 45,
-    precio: 10000,
-    esPopular: false,
-    icono: "🔄",
-    detalles: [
-      "Retiro suave sin dañar las capas de la uña",
-      "Tratamiento de queratina y calcio",
-      "Pulido y sellado nutritivo",
-      "Recomendado para descansos o cambio de técnica"
-    ],
-    activo: true
-  }
-];
-
-const defaultStudioConfig: StudioConfig = {
-  nombreEstudio: "Gwen Nails Studio",
-  subtitulo: "Donde tus manos cuentan tu historia",
-  direccion: "Gorriti 5540, Palermo Hollywood, CABA",
-  telefono: "011-15682386",
-  whatsapp: "5491115682386",
-  instagram: "gwennails",
-  email: "contacto@gwennails.com",
-  horariosPorDia: {
-    lunes: { activo: true, apertura: "09:00", cierre: "19:00" },
-    martes: { activo: true, apertura: "09:00", cierre: "19:00" },
-    miercoles: { activo: true, apertura: "09:00", cierre: "19:00" },
-    jueves: { activo: true, apertura: "09:00", cierre: "19:00" },
-    viernes: { activo: true, apertura: "09:00", cierre: "19:00" },
-    sabado: { activo: true, apertura: "09:00", cierre: "17:00" },
-    domingo: { activo: false, apertura: "10:00", cierre: "14:00" }
-  },
-  intervaloMinutos: 30,
-  bufferMinutos: 0,
-  diasBloqueados: [],
-  horariosBloqueados: {},
-  pinAdmin: "1234"
-};
 
 // Helper: Format Date to YYYY-MM-DD
 function getTodayIso(): string {
@@ -182,145 +39,6 @@ function getTodayIso(): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
-
-function getFutureDateIso(daysAhead: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + daysAhead);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-// Initial realistic sample bookings
-const defaultAppointments: Appointment[] = [
-  {
-    id: "apt-1",
-    codigo: "GWEN-4821",
-    nombre: "Camila",
-    apellido: "Valenzuela",
-    telefono: "11-4521-8899",
-    email: "camila.v@gmail.com",
-    servicioId: "3",
-    servicioNombre: "Soft Gel System",
-    duracionMinutos: 90,
-    precio: 26000,
-    fecha: getTodayIso(),
-    horaInicio: "10:00",
-    horaFin: "11:30",
-    observaciones: "Diseño almendrado con foil oro",
-    estado: "confirmado",
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    updatedAt: new Date(Date.now() - 86400000).toISOString(),
-    notasAdmin: "Clienta habitual. Prefiere base tono nude claro."
-  },
-  {
-    id: "apt-2",
-    codigo: "GWEN-5912",
-    nombre: "Florencia",
-    apellido: "Méndez",
-    telefono: "11-6677-4433",
-    servicioId: "2",
-    servicioNombre: "Esmaltado Semipermanente",
-    duracionMinutos: 60,
-    precio: 18000,
-    fecha: getTodayIso(),
-    horaInicio: "14:30",
-    horaFin: "15:30",
-    observaciones: "Color cherry red / bordeaux",
-    estado: "pendiente",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: "apt-3",
-    codigo: "GWEN-6240",
-    nombre: "Julieta",
-    apellido: "Pérez",
-    telefono: "11-3322-1100",
-    servicioId: "5",
-    servicioNombre: "Nail Art & Diseños Exclusivos",
-    duracionMinutos: 90,
-    precio: 25000,
-    fecha: getFutureDateIso(1),
-    horaInicio: "11:00",
-    horaFin: "12:30",
-    observaciones: "Vanilla Chrome + micro flores",
-    estado: "confirmado",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  {
-    id: "apt-4",
-    codigo: "GWEN-7719",
-    nombre: "Martina",
-    apellido: "Suárez",
-    telefono: "11-8899-2211",
-    servicioId: "4",
-    servicioNombre: "Kapping Gel Fortalecedor",
-    duracionMinutos: 75,
-    precio: 22000,
-    fecha: getFutureDateIso(2),
-    horaInicio: "16:00",
-    horaFin: "17:15",
-    observaciones: "Uñas frágiles post acrílico",
-    estado: "confirmado",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }
-];
-
-interface DatabaseSchema {
-  services: Service[];
-  appointments: Appointment[];
-  config: StudioConfig;
-}
-
-let db: DatabaseSchema = {
-  services: defaultServices,
-  appointments: defaultAppointments,
-  config: defaultStudioConfig
-};
-
-// Persistence functions
-function loadDatabase() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (fs.existsSync(DATA_FILE)) {
-      const raw = fs.readFileSync(DATA_FILE, "utf-8");
-      const parsed = JSON.parse(raw);
-      if (parsed.services && Array.isArray(parsed.services)) {
-        db.services = parsed.services;
-      }
-      if (parsed.appointments && Array.isArray(parsed.appointments)) {
-        db.appointments = parsed.appointments;
-      }
-      if (parsed.config) {
-        db.config = { ...defaultStudioConfig, ...parsed.config };
-      }
-      console.log("Loaded database from disk.");
-    } else {
-      saveDatabase();
-    }
-  } catch (err) {
-    console.error("Error loading database file, using in-memory state:", err);
-  }
-}
-
-function saveDatabase() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), "utf-8");
-  } catch (err) {
-    console.error("Error saving database file:", err);
-  }
-}
-
-loadDatabase();
 
 // Time utility functions
 function timeToMinutes(timeStr: string): number {
@@ -341,483 +59,659 @@ const dayNamesEs = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viern
 // REST API ROUTES
 // ============================================================================
 
+// 0. GET /api/db-status
+app.get("/api/db-status", (req, res) => {
+  res.json({
+    status: "ok",
+    postgresConnected: isDatabasePostgres(),
+    driver: isDatabasePostgres() ? "PostgreSQL (Neon / Supabase / Render)" : "Local Storage (Fallback)"
+  });
+});
+
 // 1. GET /api/servicios
-app.get("/api/servicios", (req, res) => {
-  const activeOnly = req.query.all !== "true";
-  const list = activeOnly ? db.services.filter(s => s.activo) : db.services;
-  res.json(list);
+app.get("/api/servicios", async (req, res) => {
+  try {
+    const activeOnly = req.query.all !== "true";
+    const services = await getServices(activeOnly);
+    res.json(services);
+  } catch (error) {
+    console.error("Error in GET /api/servicios:", error);
+    res.status(500).json({ error: "Error al obtener servicios" });
+  }
 });
 
 // 2. POST /api/servicios (Admin)
-app.post("/api/servicios", (req, res) => {
-  const { nombre, slug, categoria, descripcion, duracionMinutos, precio, esPopular, icono, detalles, activo } = req.body;
-  if (!nombre || !duracionMinutos || !precio) {
-    res.status(400).json({ error: "Nombre, duración y precio son campos requeridos." });
-    return;
+app.post("/api/servicios", async (req, res) => {
+  try {
+    const { nombre, slug, categoria, descripcion, duracionMinutos, precio, esPopular, icono, detalles, activo } = req.body;
+    if (!nombre || !duracionMinutos || !precio) {
+      res.status(400).json({ error: "Nombre, duración y precio son campos requeridos." });
+      return;
+    }
+    const newService: Service = {
+      id: `srv-${Date.now()}`,
+      nombre: String(nombre).trim(),
+      slug: slug || String(nombre).toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      categoria: categoria || "cuidado",
+      descripcion: descripcion || "",
+      duracionMinutos: Number(duracionMinutos),
+      precio: Number(precio),
+      esPopular: Boolean(esPopular),
+      icono: icono || "💅",
+      detalles: Array.isArray(detalles) ? detalles : [],
+      activo: activo !== false
+    };
+    const created = await createService(newService);
+    res.status(201).json(created);
+  } catch (error) {
+    console.error("Error in POST /api/servicios:", error);
+    res.status(500).json({ error: "Error al crear servicio" });
   }
-  const newService: Service = {
-    id: `srv-${Date.now()}`,
-    nombre: String(nombre).trim(),
-    slug: slug || String(nombre).toLowerCase().replace(/[^a-z0-9]+/g, "-"),
-    categoria: categoria || "cuidado",
-    descripcion: descripcion || "",
-    duracionMinutos: Number(duracionMinutos),
-    precio: Number(precio),
-    esPopular: Boolean(esPopular),
-    icono: icono || "💅",
-    detalles: Array.isArray(detalles) ? detalles : [],
-    activo: activo !== false
-  };
-  db.services.push(newService);
-  saveDatabase();
-  res.status(201).json(newService);
 });
 
 // 3. PUT /api/servicios/:id (Admin)
-app.put("/api/servicios/:id", (req, res) => {
-  const idx = db.services.findIndex(s => s.id === req.params.id);
-  if (idx === -1) {
-    res.status(404).json({ error: "Servicio no encontrado" });
-    return;
+app.put("/api/servicios/:id", async (req, res) => {
+  try {
+    const updated = await updateService(req.params.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: "Servicio no encontrado" });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("Error in PUT /api/servicios/:id:", error);
+    res.status(500).json({ error: "Error al actualizar servicio" });
   }
-  const current = db.services[idx];
-  db.services[idx] = {
-    ...current,
-    ...req.body,
-    id: current.id,
-    duracionMinutos: req.body.duracionMinutos ? Number(req.body.duracionMinutos) : current.duracionMinutos,
-    precio: req.body.precio ? Number(req.body.precio) : current.precio
-  };
-  saveDatabase();
-  res.json(db.services[idx]);
 });
 
 // 4. DELETE /api/servicios/:id (Admin)
-app.delete("/api/servicios/:id", (req, res) => {
-  const idx = db.services.findIndex(s => s.id === req.params.id);
-  if (idx === -1) {
-    res.status(404).json({ error: "Servicio no encontrado" });
-    return;
+app.delete("/api/servicios/:id", async (req, res) => {
+  try {
+    const deleted = await deleteService(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: "Servicio no encontrado" });
+      return;
+    }
+    res.json({ message: "Servicio eliminado con éxito" });
+  } catch (error) {
+    console.error("Error in DELETE /api/servicios/:id:", error);
+    res.status(500).json({ error: "Error al eliminar servicio" });
   }
-  db.services.splice(idx, 1);
-  saveDatabase();
-  res.json({ message: "Servicio eliminado con éxito" });
 });
 
 // 5. GET /api/availability?date=YYYY-MM-DD&service_id=X
-app.get("/api/availability", (req, res) => {
-  const dateStr = String(req.query.date || "");
-  const serviceId = String(req.query.service_id || req.query.servicio_id || "");
+app.get("/api/availability", async (req, res) => {
+  try {
+    const dateStr = String(req.query.date || "");
+    const serviceId = String(req.query.service_id || req.query.servicio_id || "");
 
-  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    res.status(400).json({ error: "Fecha inválida. Use formato YYYY-MM-DD." });
-    return;
-  }
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      res.status(400).json({ error: "Fecha inválida. Use formato YYYY-MM-DD." });
+      return;
+    }
 
-  // Find requested service or fallback to default 60 min
-  const service = db.services.find(s => s.id === serviceId) || db.services[0];
-  const serviceDuration = service ? service.duracionMinutos : 60;
+    const services = await getServices(false);
+    const studioConfig = await getStudioConfig();
 
-  // Date parsing
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const targetDate = new Date(year, month - 1, day);
-  const dayOfWeekIndex = targetDate.getDay();
-  const dayKey = dayKeys[dayOfWeekIndex];
-  const daySchedule = db.config.horariosPorDia[dayKey];
+    const service = services.find(s => s.id === serviceId) || services[0];
+    const serviceDuration = service ? service.duracionMinutos : 60;
 
-  // Check if date is in the past
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const isPast = targetDate < todayStart;
+    const [year, month, day] = dateStr.split("-").map(Number);
+    const targetDate = new Date(year, month - 1, day);
+    const dayOfWeekIndex = targetDate.getDay();
+    const dayKey = dayKeys[dayOfWeekIndex];
+    const daySchedule = studioConfig.horariosPorDia[dayKey];
 
-  // Check if date is specifically blocked
-  const isDateBlocked = db.config.diasBloqueados.includes(dateStr);
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isPast = targetDate < todayStart;
+    const isDateBlocked = studioConfig.diasBloqueados.includes(dateStr) || 
+      Boolean(studioConfig.bloqueosDetallados?.some(b => b.fecha === dateStr && b.tipo === "dia_completo"));
 
-  const availabilityResponse: DayAvailability = {
-    fecha: dateStr,
-    diaSemana: dayOfWeekIndex,
-    nombreDia: dayNamesEs[dayOfWeekIndex],
-    abierto: false,
-    duracionServicioSolicitado: serviceDuration,
-    slots: [],
-    slotsDisponiblesCount: 0
-  };
+    const availabilityResponse: DayAvailability = {
+      fecha: dateStr,
+      diaSemana: dayOfWeekIndex,
+      nombreDia: dayNamesEs[dayOfWeekIndex],
+      abierto: false,
+      duracionServicioSolicitado: serviceDuration,
+      slots: [],
+      slotsDisponiblesCount: 0
+    };
 
-  if (isPast) {
-    availabilityResponse.abierto = false;
-    availabilityResponse.motivo = "La fecha seleccionada ya ha transcurrido.";
-    res.json(availabilityResponse);
-    return;
-  }
+    if (isPast) {
+      availabilityResponse.abierto = false;
+      availabilityResponse.motivo = "La fecha seleccionada ya ha transcurrido.";
+      res.json(availabilityResponse);
+      return;
+    }
 
-  if (isDateBlocked) {
-    availabilityResponse.abierto = false;
-    availabilityResponse.motivo = "El estudio permanecerá cerrado en esta fecha.";
-    res.json(availabilityResponse);
-    return;
-  }
+    if (isDateBlocked) {
+      const fullDayBlock = studioConfig.bloqueosDetallados?.find(b => b.fecha === dateStr && b.tipo === "dia_completo");
+      availabilityResponse.abierto = false;
+      availabilityResponse.motivo = fullDayBlock?.motivo 
+        ? `Cerrado: ${fullDayBlock.motivo}` 
+        : "El estudio permanecerá cerrado en esta fecha.";
+      res.json(availabilityResponse);
+      return;
+    }
 
-  if (!daySchedule || !daySchedule.activo) {
-    availabilityResponse.abierto = false;
-    availabilityResponse.motivo = "Cerrado los días domingo (o según cronograma).";
-    res.json(availabilityResponse);
-    return;
-  }
+    if (!daySchedule || !daySchedule.activo) {
+      availabilityResponse.abierto = false;
+      availabilityResponse.motivo = "Cerrado según cronograma del salón.";
+      res.json(availabilityResponse);
+      return;
+    }
 
-  availabilityResponse.abierto = true;
-  availabilityResponse.horarioAtencion = {
-    apertura: daySchedule.apertura,
-    cierre: daySchedule.cierre
-  };
+    availabilityResponse.abierto = true;
+    availabilityResponse.horarioAtencion = {
+      apertura: daySchedule.apertura,
+      cierre: daySchedule.cierre
+    };
 
-  const openMinutes = timeToMinutes(daySchedule.apertura);
-  const closeMinutes = timeToMinutes(daySchedule.cierre);
-  const intervalMinutes = db.config.intervaloMinutos || 30;
+    const openMinutes = timeToMinutes(daySchedule.apertura);
+    const closeMinutes = timeToMinutes(daySchedule.cierre);
+    const intervalMinutes = studioConfig.intervaloMinutos || 30;
 
-  // Get all active appointments for this date
-  const activeDayAppointments = db.appointments.filter(
-    apt => apt.fecha === dateStr && apt.estado !== "cancelado"
-  );
+    const activeDayAppointments = await getAppointments({ date: dateStr });
+    const nonCancelledAppointments = activeDayAppointments.filter(a => a.estado !== "cancelado");
 
-  const blockedHoursForDate = db.config.horariosBloqueados[dateStr] || [];
+    const blockedHoursForDate = studioConfig.horariosBloqueados[dateStr] || [];
+    const detailedBlocksForDate = (studioConfig.bloqueosDetallados || []).filter(
+      b => b.fecha === dateStr && b.tipo === "rango_horario" && b.horaInicio && b.horaFin
+    );
 
-  const slots: TimeSlot[] = [];
-  let availableCount = 0;
+    const slots: TimeSlot[] = [];
+    let availableCount = 0;
 
-  // Generate slots
-  for (let startM = openMinutes; startM + serviceDuration <= closeMinutes; startM += intervalMinutes) {
-    const endM = startM + serviceDuration;
-    const slotTimeStr = minutesToTime(startM);
+    for (let startM = openMinutes; startM + serviceDuration <= closeMinutes; startM += intervalMinutes) {
+      const endM = startM + serviceDuration;
+      const slotTimeStr = minutesToTime(startM);
 
-    // If today, check if time has already passed
-    if (targetDate.getTime() === todayStart.getTime()) {
-      const currentMinutesToday = now.getHours() * 60 + now.getMinutes();
-      if (startM <= currentMinutesToday + 15) { // 15 min buffer
+      if (targetDate.getTime() === todayStart.getTime()) {
+        const currentMinutesToday = now.getHours() * 60 + now.getMinutes();
+        if (startM <= currentMinutesToday + 15) {
+          slots.push({
+            hora: slotTimeStr,
+            disponible: false,
+            motivo: "Horario pasado"
+          });
+          continue;
+        }
+      }
+
+      // Check detailed range blocks
+      const collidingBlock = detailedBlocksForDate.find(b => {
+        const bStart = timeToMinutes(b.horaInicio!);
+        const bEnd = timeToMinutes(b.horaFin!);
+        return Math.max(startM, bStart) < Math.min(endM, bEnd);
+      });
+
+      if (collidingBlock) {
         slots.push({
           hora: slotTimeStr,
           disponible: false,
-          motivo: "Horario pasado"
+          motivo: collidingBlock.motivo ? `Bloqueado: ${collidingBlock.motivo}` : "Horario bloqueado por el estudio"
         });
         continue;
       }
+
+      if (blockedHoursForDate.includes(slotTimeStr)) {
+        slots.push({
+          hora: slotTimeStr,
+          disponible: false,
+          motivo: "Horario reservado para mantenimiento o descanso"
+        });
+        continue;
+      }
+
+      const hasCollision = nonCancelledAppointments.some(apt => {
+        const aptStart = timeToMinutes(apt.horaInicio);
+        const aptEnd = timeToMinutes(apt.horaFin);
+        return Math.max(startM, aptStart) < Math.min(endM, aptEnd);
+      });
+
+      if (hasCollision) {
+        slots.push({
+          hora: slotTimeStr,
+          disponible: false,
+          motivo: "Turno ya ocupado"
+        });
+      } else {
+        slots.push({
+          hora: slotTimeStr,
+          disponible: true
+        });
+        availableCount++;
+      }
     }
 
-    // Check manual block
-    if (blockedHoursForDate.includes(slotTimeStr)) {
-      slots.push({
-        hora: slotTimeStr,
-        disponible: false,
-        motivo: "Horario reservado para mantenimiento o descanso"
-      });
-      continue;
-    }
+    availabilityResponse.slots = slots;
+    availabilityResponse.slotsDisponiblesCount = availableCount;
 
-    // Check collision with existing appointments
-    const hasCollision = activeDayAppointments.some(apt => {
-      const aptStart = timeToMinutes(apt.horaInicio);
-      const aptEnd = timeToMinutes(apt.horaFin);
-      // Overlap formula: max(startM, aptStart) < min(endM, aptEnd)
-      return Math.max(startM, aptStart) < Math.min(endM, aptEnd);
-    });
-
-    if (hasCollision) {
-      slots.push({
-        hora: slotTimeStr,
-        disponible: false,
-        motivo: "Turno ya ocupado"
-      });
-    } else {
-      slots.push({
-        hora: slotTimeStr,
-        disponible: true
-      });
-      availableCount++;
-    }
+    res.json(availabilityResponse);
+  } catch (error) {
+    console.error("Error in GET /api/availability:", error);
+    res.status(500).json({ error: "Error al calcular disponibilidad" });
   }
-
-  availabilityResponse.slots = slots;
-  availabilityResponse.slotsDisponiblesCount = availableCount;
-
-  res.json(availabilityResponse);
 });
 
 // 6. POST /api/turnos (Booking creation)
-app.post("/api/turnos", (req, res) => {
-  const { nombre, apellido, telefono, email, servicio_id, fecha, hora_inicio, observaciones } = req.body;
+app.post("/api/turnos", async (req, res) => {
+  try {
+    const { nombre, apellido, telefono, email, servicio_id, fecha, hora_inicio, observaciones } = req.body;
 
-  if (!nombre || !apellido || !telefono || !servicio_id || !fecha || !hora_inicio) {
-    res.status(400).json({ error: "Todos los campos obligatorios deben ser completados." });
-    return;
-  }
+    if (!nombre || !apellido || !telefono || !servicio_id || !fecha || !hora_inicio) {
+      res.status(400).json({ error: "Todos los campos obligatorios deben ser completados." });
+      return;
+    }
 
-  const service = db.services.find(s => s.id === String(servicio_id));
-  if (!service) {
-    res.status(400).json({ error: "El servicio seleccionado no existe." });
-    return;
-  }
+    const services = await getServices(false);
+    const studioConfig = await getStudioConfig();
 
-  const serviceDuration = service.duracionMinutos;
-  const startM = timeToMinutes(hora_inicio);
-  const endM = startM + serviceDuration;
-  const horaFin = minutesToTime(endM);
+    const service = services.find(s => s.id === String(servicio_id));
+    if (!service) {
+      res.status(400).json({ error: "El servicio seleccionado no existe." });
+      return;
+    }
 
-  // Validate that schedule allows this
-  const [year, month, day] = fecha.split("-").map(Number);
-  const targetDate = new Date(year, month - 1, day);
-  const dayOfWeekIndex = targetDate.getDay();
-  const dayKey = dayKeys[dayOfWeekIndex];
-  const daySchedule = db.config.horariosPorDia[dayKey];
+    const serviceDuration = service.duracionMinutos;
+    const startM = timeToMinutes(hora_inicio);
+    const endM = startM + serviceDuration;
+    const horaFin = minutesToTime(endM);
 
-  if (!daySchedule || !daySchedule.activo) {
-    res.status(400).json({ error: "El estudio se encuentra cerrado en esa fecha." });
-    return;
-  }
+    const [year, month, day] = fecha.split("-").map(Number);
+    const targetDate = new Date(year, month - 1, day);
+    const dayOfWeekIndex = targetDate.getDay();
+    const dayKey = dayKeys[dayOfWeekIndex];
+    const daySchedule = studioConfig.horariosPorDia[dayKey];
 
-  const closeM = timeToMinutes(daySchedule.cierre);
-  if (endM > closeM) {
-    res.status(400).json({ error: "El servicio excede el horario de cierre del estudio." });
-    return;
-  }
+    if (!daySchedule || !daySchedule.activo) {
+      res.status(400).json({ error: "El estudio se encuentra cerrado en esa fecha." });
+      return;
+    }
 
-  // Conflict validation: check existing appointments
-  const collision = db.appointments.find(apt => {
-    if (apt.fecha !== fecha || apt.estado === "cancelado") return false;
-    const aptStart = timeToMinutes(apt.horaInicio);
-    const aptEnd = timeToMinutes(apt.horaFin);
-    return Math.max(startM, aptStart) < Math.min(endM, aptEnd);
-  });
+    const closeM = timeToMinutes(daySchedule.cierre);
+    if (endM > closeM) {
+      res.status(400).json({ error: "El servicio excede el horario de cierre del estudio." });
+      return;
+    }
 
-  if (collision) {
-    res.status(409).json({ 
-      error: "El horario seleccionado acaba de ser ocupado. Por favor elegí otro horario disponible.",
-      conflictWith: collision.horaInicio
+    const dayAppointments = await getAppointments({ date: fecha });
+    const collision = dayAppointments.find(apt => {
+      if (apt.estado === "cancelado") return false;
+      const aptStart = timeToMinutes(apt.horaInicio);
+      const aptEnd = timeToMinutes(apt.horaFin);
+      return Math.max(startM, aptStart) < Math.min(endM, aptEnd);
     });
-    return;
+
+    if (collision) {
+      res.status(409).json({ 
+        error: "El horario seleccionado acaba de ser ocupado. Por favor elegí otro horario disponible.",
+        conflictWith: collision.horaInicio
+      });
+      return;
+    }
+
+    const codeNumber = Math.floor(1000 + Math.random() * 9000);
+    const bookingCode = `GWEN-${codeNumber}`;
+
+    const newAppointment: Appointment = {
+      id: `apt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      codigo: bookingCode,
+      nombre: String(nombre).trim(),
+      apellido: String(apellido).trim(),
+      telefono: String(telefono).trim(),
+      email: email ? String(email).trim() : undefined,
+      servicioId: service.id,
+      servicioNombre: service.nombre,
+      duracionMinutos: service.duracionMinutos,
+      precio: service.precio,
+      fecha,
+      horaInicio: hora_inicio,
+      horaFin,
+      observaciones: observaciones ? String(observaciones).trim() : undefined,
+      estado: "confirmado",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const saved = await createAppointment(newAppointment);
+
+    const studioWhatsapp = studioConfig.whatsapp.replace(/[^0-9]/g, "");
+    const waMessage = encodeURIComponent(
+      `✨ *¡Hola Gwen Nails!* Acabo de reservar mi turno:\n\n` +
+      `📌 *Código:* ${bookingCode}\n` +
+      `👤 *Nombre:* ${saved.nombre} ${saved.apellido}\n` +
+      `💅 *Servicio:* ${saved.servicioNombre}\n` +
+      `📅 *Fecha:* ${saved.fecha}\n` +
+      `⏰ *Horario:* ${saved.horaInicio} hs (${saved.duracionMinutos} min)\n` +
+      `💰 *Valor:* $${saved.precio.toLocaleString("es-AR")}\n` +
+      (saved.observaciones ? `📝 *Detalles:* ${saved.observaciones}\n` : "") +
+      `\n¡Muchas gracias!`
+    );
+    const whatsappUrl = `https://wa.me/${studioWhatsapp}?text=${waMessage}`;
+
+    res.status(201).json({
+      message: "Turno reservado exitosamente.",
+      turno: saved,
+      whatsappUrl
+    });
+  } catch (error) {
+    console.error("Error in POST /api/turnos:", error);
+    res.status(500).json({ error: "Error al procesar la reserva" });
   }
-
-  const codeNumber = Math.floor(1000 + Math.random() * 9000);
-  const bookingCode = `GWEN-${codeNumber}`;
-
-  const newAppointment: Appointment = {
-    id: `apt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    codigo: bookingCode,
-    nombre: String(nombre).trim(),
-    apellido: String(apellido).trim(),
-    telefono: String(telefono).trim(),
-    email: email ? String(email).trim() : undefined,
-    servicioId: service.id,
-    servicioNombre: service.nombre,
-    duracionMinutos: service.duracionMinutos,
-    precio: service.precio,
-    fecha,
-    horaInicio: hora_inicio,
-    horaFin,
-    observaciones: observaciones ? String(observaciones).trim() : undefined,
-    estado: "confirmado",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  db.appointments.unshift(newAppointment);
-  saveDatabase();
-
-  // Create formatted WhatsApp link for direct confirmation
-  const studioWhatsapp = db.config.whatsapp.replace(/[^0-9]/g, "");
-  const waMessage = encodeURIComponent(
-    `✨ *¡Hola Gwen Nails!* Acabo de reservar mi turno:\n\n` +
-    `📌 *Código:* ${bookingCode}\n` +
-    `👤 *Nombre:* ${newAppointment.nombre} ${newAppointment.apellido}\n` +
-    `💅 *Servicio:* ${newAppointment.servicioNombre}\n` +
-    `📅 *Fecha:* ${newAppointment.fecha}\n` +
-    `⏰ *Horario:* ${newAppointment.horaInicio} hs (${newAppointment.duracionMinutos} min)\n` +
-    `💰 *Valor:* $${newAppointment.precio.toLocaleString("es-AR")}\n` +
-    (newAppointment.observaciones ? `📝 *Detalles:* ${newAppointment.observaciones}\n` : "") +
-    `\n¡Muchas gracias!`
-  );
-  const whatsappUrl = `https://wa.me/${studioWhatsapp}?text=${waMessage}`;
-
-  res.status(201).json({
-    message: "Turno reservado exitosamente.",
-    turno: newAppointment,
-    whatsappUrl
-  });
 });
 
 // 7. GET /api/turnos (Admin query & list)
-app.get("/api/turnos", (req, res) => {
-  const { date, status, search, from, to } = req.query;
-  let filtered = [...db.appointments];
-
-  if (date) {
-    filtered = filtered.filter(a => a.fecha === String(date));
+app.get("/api/turnos", async (req, res) => {
+  try {
+    const { date, status, search, from, to } = req.query;
+    const appointments = await getAppointments({
+      date: date ? String(date) : undefined,
+      from: from ? String(from) : undefined,
+      to: to ? String(to) : undefined,
+      status: status ? String(status) : undefined,
+      search: search ? String(search) : undefined
+    });
+    res.json(appointments);
+  } catch (error) {
+    console.error("Error in GET /api/turnos:", error);
+    res.status(500).json({ error: "Error al obtener turnos" });
   }
-  if (from) {
-    filtered = filtered.filter(a => a.fecha >= String(from));
-  }
-  if (to) {
-    filtered = filtered.filter(a => a.fecha <= String(to));
-  }
-  if (status && status !== "todos") {
-    filtered = filtered.filter(a => a.estado === String(status));
-  }
-  if (search) {
-    const q = String(search).toLowerCase();
-    filtered = filtered.filter(a => 
-      a.nombre.toLowerCase().includes(q) ||
-      a.apellido.toLowerCase().includes(q) ||
-      a.telefono.toLowerCase().includes(q) ||
-      a.codigo.toLowerCase().includes(q) ||
-      a.servicioNombre.toLowerCase().includes(q)
-    );
-  }
-
-  // Sort by date and time
-  filtered.sort((a, b) => {
-    const dateComp = a.fecha.localeCompare(b.fecha);
-    if (dateComp !== 0) return dateComp;
-    return a.horaInicio.localeCompare(b.horaInicio);
-  });
-
-  res.json(filtered);
 });
 
 // 8. PATCH /api/turnos/:id (Admin status / notes update)
-app.patch("/api/turnos/:id", (req, res) => {
-  const appointment = db.appointments.find(a => a.id === req.params.id || a.codigo === req.params.id);
-  if (!appointment) {
-    res.status(404).json({ error: "Turno no encontrado." });
-    return;
+app.patch("/api/turnos/:id", async (req, res) => {
+  try {
+    const updated = await updateAppointment(req.params.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: "Turno no encontrado." });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("Error in PATCH /api/turnos/:id:", error);
+    res.status(500).json({ error: "Error al actualizar turno" });
   }
-
-  const { estado, notasAdmin, fecha, horaInicio, horaFin } = req.body;
-  if (estado) appointment.estado = estado;
-  if (notasAdmin !== undefined) appointment.notasAdmin = notasAdmin;
-  if (fecha) appointment.fecha = fecha;
-  if (horaInicio) appointment.horaInicio = horaInicio;
-  if (horaFin) appointment.horaFin = horaFin;
-  appointment.updatedAt = new Date().toISOString();
-
-  saveDatabase();
-  res.json(appointment);
 });
 
 // 9. DELETE /api/turnos/:id (Admin cancel / remove)
-app.delete("/api/turnos/:id", (req, res) => {
-  const idx = db.appointments.findIndex(a => a.id === req.params.id || a.codigo === req.params.id);
-  if (idx === -1) {
-    res.status(404).json({ error: "Turno no encontrado." });
-    return;
+app.delete("/api/turnos/:id", async (req, res) => {
+  try {
+    const deleted = await deleteAppointment(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: "Turno no encontrado." });
+      return;
+    }
+    res.json({ message: "Turno eliminado con éxito." });
+  } catch (error) {
+    console.error("Error in DELETE /api/turnos/:id:", error);
+    res.status(500).json({ error: "Error al eliminar turno" });
   }
-  db.appointments.splice(idx, 1);
-  saveDatabase();
-  res.json({ message: "Turno eliminado con éxito." });
 });
 
 // 10. GET /api/turnos/stats (Analytics dashboard)
-app.get("/api/turnos/stats", (req, res) => {
-  const today = getTodayIso();
-  const currentMonthPrefix = today.slice(0, 7);
+app.get("/api/turnos/stats", async (req, res) => {
+  try {
+    const today = getTodayIso();
+    const currentMonthPrefix = today.slice(0, 7);
 
-  const todayList = db.appointments.filter(a => a.fecha === today && a.estado !== "cancelado");
-  const pendingCount = db.appointments.filter(a => a.estado === "pendiente").length;
-  const confirmedCount = db.appointments.filter(a => a.estado === "confirmado").length;
-  
-  const thisMonthList = db.appointments.filter(a => a.fecha.startsWith(currentMonthPrefix) && a.estado !== "cancelado");
-  const completedThisMonth = thisMonthList.filter(a => a.estado === "completado" || a.estado === "confirmado").length;
-  const estimatedRevenue = thisMonthList.reduce((acc, curr) => acc + (curr.precio || 0), 0);
+    const allAppointments = await getAppointments();
 
-  // Service popular stats
-  const serviceCounter: Record<string, { nombre: string; count: number; revenue: number }> = {};
-  db.appointments.forEach(a => {
-    if (a.estado === "cancelado") return;
-    if (!serviceCounter[a.servicioId]) {
-      serviceCounter[a.servicioId] = {
-        nombre: a.servicioNombre,
-        count: 0,
-        revenue: 0
-      };
-    }
-    serviceCounter[a.servicioId].count++;
-    serviceCounter[a.servicioId].revenue += a.precio;
-  });
+    const todayList = allAppointments.filter(a => a.fecha === today && a.estado !== "cancelado");
+    const pendingCount = allAppointments.filter(a => a.estado === "pendiente").length;
+    const confirmedCount = allAppointments.filter(a => a.estado === "confirmado").length;
+    
+    const thisMonthList = allAppointments.filter(a => a.fecha.startsWith(currentMonthPrefix) && a.estado !== "cancelado");
+    const completedThisMonth = thisMonthList.filter(a => a.estado === "completado" || a.estado === "confirmado").length;
+    const estimatedRevenue = thisMonthList.reduce((acc, curr) => acc + (curr.precio || 0), 0);
 
-  const topServices = Object.entries(serviceCounter)
-    .map(([servicioId, item]) => ({
-      servicioId,
-      nombre: item.nombre,
-      cantidad: item.count,
-      ingresos: item.revenue
-    }))
-    .sort((a, b) => b.cantidad - a.cantidad);
+    const serviceCounter: Record<string, { nombre: string; count: number; revenue: number }> = {};
+    allAppointments.forEach(a => {
+      if (a.estado === "cancelado") return;
+      if (!serviceCounter[a.servicioId]) {
+        serviceCounter[a.servicioId] = {
+          nombre: a.servicioNombre,
+          count: 0,
+          revenue: 0
+        };
+      }
+      serviceCounter[a.servicioId].count++;
+      serviceCounter[a.servicioId].revenue += a.precio;
+    });
 
-  // Upcoming appointments
-  const upcoming = db.appointments
-    .filter(a => a.fecha >= today && a.estado !== "cancelado")
-    .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.horaInicio.localeCompare(b.horaInicio))
-    .slice(0, 8);
+    const topServices = Object.entries(serviceCounter)
+      .map(([servicioId, item]) => ({
+        servicioId,
+        nombre: item.nombre,
+        cantidad: item.count,
+        ingresos: item.revenue
+      }))
+      .sort((a, b) => b.cantidad - a.cantidad);
 
-  const stats: DashboardStats = {
-    turnosHoy: todayList.length,
-    turnosPendientes: pendingCount,
-    turnosConfirmados: confirmedCount,
-    turnosCompletadosMes: completedThisMonth,
-    ingresosEstimadosMes: estimatedRevenue,
-    totalTurnos: db.appointments.length,
-    serviciosMasPedidos: topServices,
-    proximosTurnos: upcoming
-  };
+    const upcoming = allAppointments
+      .filter(a => a.fecha >= today && a.estado !== "cancelado")
+      .sort((a, b) => a.fecha.localeCompare(b.fecha) || a.horaInicio.localeCompare(b.horaInicio))
+      .slice(0, 8);
 
-  res.json(stats);
+    const stats: DashboardStats = {
+      turnosHoy: todayList.length,
+      turnosPendientes: pendingCount,
+      turnosConfirmados: confirmedCount,
+      turnosCompletadosMes: completedThisMonth,
+      ingresosEstimadosMes: estimatedRevenue,
+      totalTurnos: allAppointments.length,
+      serviciosMasPedidos: topServices,
+      proximosTurnos: upcoming
+    };
+
+    res.json(stats);
+  } catch (error) {
+    console.error("Error in GET /api/turnos/stats:", error);
+    res.status(500).json({ error: "Error al calcular estadísticas" });
+  }
 });
 
 // 11. GET /api/config & PUT /api/config
-app.get("/api/config", (req, res) => {
-  res.json(db.config);
+app.get("/api/config", async (req, res) => {
+  try {
+    const config = await getStudioConfig();
+    res.json(config);
+  } catch (error) {
+    console.error("Error in GET /api/config:", error);
+    res.status(500).json({ error: "Error al obtener configuración" });
+  }
 });
 
-app.put("/api/config", (req, res) => {
-  db.config = { ...db.config, ...req.body };
-  saveDatabase();
-  res.json(db.config);
+app.put("/api/config", async (req, res) => {
+  try {
+    const updated = await updateStudioConfig(req.body);
+    res.json(updated);
+  } catch (error) {
+    console.error("Error in PUT /api/config:", error);
+    res.status(500).json({ error: "Error al actualizar configuración" });
+  }
 });
 
 // 12. POST /api/admin/verify-pin
-app.post("/api/admin/verify-pin", (req, res) => {
-  const { pin } = req.body;
-  if (pin === db.config.pinAdmin || pin === "1234" || pin === "gwen") {
-    res.json({ valid: true });
-  } else {
-    res.status(401).json({ valid: false, error: "PIN incorrecto" });
+app.post("/api/admin/verify-pin", async (req, res) => {
+  try {
+    const { pin } = req.body;
+    const config = await getStudioConfig();
+    if (pin === config.pinAdmin || pin === "1234" || pin === "gwen") {
+      res.json({ valid: true });
+    } else {
+      res.status(401).json({ valid: false, error: "PIN incorrecto" });
+    }
+  } catch (error) {
+    console.error("Error in POST /api/admin/verify-pin:", error);
+    res.status(500).json({ error: "Error al verificar PIN" });
   }
 });
 
-// 13. POST /api/admin/bloquear-horario
-app.post("/api/admin/bloquear-horario", (req, res) => {
-  const { fecha, hora } = req.body;
-  if (!fecha) {
-    res.status(400).json({ error: "Fecha requerida" });
-    return;
+// 13. POST /api/admin/bloquear-horario (Blocks a time range or whole day with collision detection)
+app.post("/api/admin/bloquear-horario", async (req, res) => {
+  try {
+    const { 
+      fecha, 
+      tipo = "rango_horario", 
+      horaInicio, 
+      horaFin, 
+      motivo, 
+      force = false 
+    } = req.body;
+
+    if (!fecha || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      res.status(400).json({ error: "Fecha requerida con formato YYYY-MM-DD." });
+      return;
+    }
+
+    const isFullDay = tipo === "dia_completo" || (!horaInicio && !horaFin);
+
+    let startM = 0;
+    let endM = 24 * 60;
+
+    if (!isFullDay) {
+      if (!horaInicio || !horaFin) {
+        res.status(400).json({ error: "Debe especificar hora de inicio y hora de fin para el bloqueo por rango." });
+        return;
+      }
+      startM = timeToMinutes(horaInicio);
+      endM = timeToMinutes(horaFin);
+      if (startM >= endM) {
+        res.status(400).json({ error: "La hora de fin debe ser posterior a la hora de inicio." });
+        return;
+      }
+    }
+
+    // Check for collisions with active client appointments
+    const dayAppointments = await getAppointments({ date: fecha });
+    const nonCancelled = dayAppointments.filter(a => a.estado !== "cancelado");
+
+    const conflictingAppointments = nonCancelled.filter(apt => {
+      if (isFullDay) return true;
+      const aptStart = timeToMinutes(apt.horaInicio);
+      const aptEnd = timeToMinutes(apt.horaFin);
+      return Math.max(startM, aptStart) < Math.min(endM, aptEnd);
+    });
+
+    if (conflictingAppointments.length > 0 && !force) {
+      res.status(409).json({
+        conflict: true,
+        error: `Atención: Hay ${conflictingAppointments.length} turno(s) ya reservado(s) en este horario.`,
+        conflicts: conflictingAppointments.map(apt => ({
+          id: apt.id,
+          codigo: apt.codigo,
+          nombre: `${apt.nombre} ${apt.apellido}`,
+          telefono: apt.telefono,
+          servicioNombre: apt.servicioNombre,
+          fecha: apt.fecha,
+          horaInicio: apt.horaInicio,
+          horaFin: apt.horaFin,
+          precio: apt.precio
+        }))
+      });
+      return;
+    }
+
+    const config = await getStudioConfig();
+    const diasBloqueados = [...config.diasBloqueados];
+    const bloqueosDetallados = [...(config.bloqueosDetallados || [])];
+    const horariosBloqueados = { ...config.horariosBloqueados };
+
+    const newBlockId = `blk-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const newBlock = {
+      id: newBlockId,
+      fecha,
+      tipo: isFullDay ? "dia_completo" as const : "rango_horario" as const,
+      horaInicio: isFullDay ? undefined : horaInicio,
+      horaFin: isFullDay ? undefined : horaFin,
+      motivo: motivo ? String(motivo).trim() : (isFullDay ? "Día cerrado" : "Horario bloqueado por el salón"),
+      createdAt: new Date().toISOString()
+    };
+
+    bloqueosDetallados.unshift(newBlock);
+
+    if (isFullDay) {
+      if (!diasBloqueados.includes(fecha)) {
+        diasBloqueados.push(fecha);
+      }
+    } else {
+      if (!horariosBloqueados[fecha]) {
+        horariosBloqueados[fecha] = [];
+      }
+      for (let m = startM; m < endM; m += 30) {
+        const slotStr = minutesToTime(m);
+        if (!horariosBloqueados[fecha].includes(slotStr)) {
+          horariosBloqueados[fecha].push(slotStr);
+        }
+      }
+    }
+
+    const updated = await updateStudioConfig({ 
+      diasBloqueados, 
+      bloqueosDetallados,
+      horariosBloqueados 
+    });
+
+    res.json({
+      message: "Bloqueo registrado con éxito en la agenda.",
+      config: updated,
+      block: newBlock,
+      conflictsOverridden: conflictingAppointments.length
+    });
+  } catch (error) {
+    console.error("Error in POST /api/admin/bloquear-horario:", error);
+    res.status(500).json({ error: "Error al registrar bloqueo" });
   }
-  if (hora) {
-    if (!db.config.horariosBloqueados[fecha]) {
-      db.config.horariosBloqueados[fecha] = [];
+});
+
+// 14. DELETE /api/admin/bloquear-horario/:id (Removes a specific block)
+app.delete("/api/admin/bloquear-horario/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const config = await getStudioConfig();
+    const bloqueos = config.bloqueosDetallados || [];
+    const targetBlock = bloqueos.find(b => b.id === id || b.fecha === id);
+
+    const updatedBloqueos = bloqueos.filter(b => b.id !== id && b.fecha !== id);
+    let diasBloqueados = [...config.diasBloqueados];
+    const horariosBloqueados = { ...config.horariosBloqueados };
+
+    if (targetBlock) {
+      if (targetBlock.tipo === "dia_completo") {
+        diasBloqueados = diasBloqueados.filter(d => d !== targetBlock.fecha);
+      } else if (targetBlock.fecha && horariosBloqueados[targetBlock.fecha]) {
+        delete horariosBloqueados[targetBlock.fecha];
+      }
+    } else {
+      // Direct date fallback
+      diasBloqueados = diasBloqueados.filter(d => d !== id);
+      if (horariosBloqueados[id]) {
+        delete horariosBloqueados[id];
+      }
     }
-    if (!db.config.horariosBloqueados[fecha].includes(hora)) {
-      db.config.horariosBloqueados[fecha].push(hora);
-    }
-  } else {
-    if (!db.config.diasBloqueados.includes(fecha)) {
-      db.config.diasBloqueados.push(fecha);
-    }
+
+    const updated = await updateStudioConfig({
+      diasBloqueados,
+      bloqueosDetallados: updatedBloqueos,
+      horariosBloqueados
+    });
+
+    res.json({ message: "Bloqueo eliminado con éxito.", config: updated });
+  } catch (error) {
+    console.error("Error in DELETE /api/admin/bloquear-horario/:id:", error);
+    res.status(500).json({ error: "Error al eliminar bloqueo" });
   }
-  saveDatabase();
-  res.json({ message: "Bloqueo registrado con éxito", config: db.config });
 });
 
 // ============================================================================
 // VITE MIDDLEWARE SETUP FOR DEV & PROD
 // ============================================================================
 async function startServer() {
+  // Initialize Database (PostgreSQL if DATABASE_URL provided, else local fallback)
+  await initDatabase();
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

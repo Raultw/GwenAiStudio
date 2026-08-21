@@ -129,6 +129,24 @@
   ],
   "appointments": [
     {
+      "id": "apt-1787324976705-715",
+      "codigo": "GWEN-3677",
+      "nombre": "Valeria",
+      "apellido": "Rossi",
+      "telefono": "1199887766",
+      "servicioId": "3",
+      "servicioNombre": "Soft Gel System",
+      "duracionMinutos": 90,
+      "precio": 26000,
+      "fecha": "2026-08-25",
+      "horaInicio": "14:00",
+      "horaFin": "15:30",
+      "observaciones": "Prueba Soft Gel",
+      "estado": "confirmado",
+      "createdAt": "2026-08-21T15:09:36.705Z",
+      "updatedAt": "2026-08-21T15:09:36.705Z"
+    },
+    {
       "id": "apt-1787322960015-395",
       "codigo": "GWEN-6953",
       "nombre": "Luciana",

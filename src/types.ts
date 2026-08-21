@@ -62,6 +62,16 @@ export interface DayScheduleConfig {
   cierre: string; // "19:00"
 }
 
+export interface BlockedTimeRange {
+  id: string;
+  fecha: string; // YYYY-MM-DD
+  tipo: 'dia_completo' | 'rango_horario';
+  horaInicio?: string; // HH:mm (e.g. "14:00")
+  horaFin?: string; // HH:mm (e.g. "17:30")
+  motivo?: string; // e.g. "Capacitación / Evento", "Almuerzo", "Asuntos personales"
+  createdAt?: string;
+}
+
 export interface StudioConfig {
   nombreEstudio: string;
   subtitulo: string;
@@ -83,6 +93,7 @@ export interface StudioConfig {
   bufferMinutos: number; // e.g. 0 or 15
   diasBloqueados: string[]; // ['2026-12-25', '2026-01-01']
   horariosBloqueados: Record<string, string[]>; // { '2026-08-25': ['09:00', '09:30'] }
+  bloqueosDetallados?: BlockedTimeRange[];
   pinAdmin: string;
 }
 

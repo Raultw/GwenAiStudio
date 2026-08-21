@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   X, 
   Lock, 
@@ -7,6 +7,7 @@ import {
   CheckCircle, 
   XCircle, 
   AlertCircle, 
+  AlertTriangle,
   MessageCircle, 
   Phone, 
   Search, 
@@ -53,6 +54,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [services, setServices] = useState<Service[]>([]);
   const [config, setConfig] = useState<StudioConfig | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [dbStatus, setDbStatus] = useState<{ postgresConnected: boolean; driver: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   // Filters for Agenda
@@ -78,9 +80,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [manualSuccess, setManualSuccess] = useState<string | null>(null);
   const [manualError, setManualError] = useState<string | null>(null);
 
-  // Block date form
+  // Block date & time range form state
+  const [blockType, setBlockType] = useState<'rango_horario' | 'dia_completo'>('rango_horario');
   const [blockDate, setBlockDate] = useState<string>('');
-  const [blockHour, setBlockHour] = useState<string>('');
+  const [blockStartHour, setBlockStartHour] = useState<string>('13:00');
+  const [blockEndHour, setBlockEndHour] = useState<string>('16:00');
+  const [blockMotivo, setBlockMotivo] = useState<string>('');
+  const [blockSuccessMsg, setBlockSuccessMsg] = useState<string | null>(null);
+  const [blockErrorMsg, setBlockErrorMsg] = useState<string | null>(null);
+  const [isSubmittingBlock, setIsSubmittingBlock] = useState<boolean>(false);
+  const [serverBlockConflicts, setServerBlockConflicts] = useState<any[]>([]);
 
   // Service edit/create state
   const [editingService, setEditingService] = useState<Service | null>(null);
@@ -120,17 +129,19 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const loadAdminData = async () => {
     setIsLoading(true);
     try {
-      const [aptRes, srvRes, cfgRes, statsRes] = await Promise.all([
+      const [aptRes, srvRes, cfgRes, statsRes, dbRes] = await Promise.all([
         fetch('/api/turnos'),
         fetch('/api/servicios?all=true'),
         fetch('/api/config'),
-        fetch('/api/turnos/stats')
+        fetch('/api/turnos/stats'),
+        fetch('/api/db-status')
       ]);
 
       if (aptRes.ok) setAppointments(await aptRes.json());
       if (srvRes.ok) setServices(await srvRes.json());
       if (cfgRes.ok) setConfig(await cfgRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
+      if (dbRes.ok) setDbStatus(await dbRes.json());
     } catch (err) {
       console.error('Error fetching admin data:', err);
     } finally {
@@ -143,8 +154,6 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       loadAdminData();
     }
   }, [isOpen, isAuthenticated]);
-
-  if (!isOpen) return null;
 
   // Change Appointment Status
   const handleUpdateStatus = async (id: string, newStatus: AppointmentStatus) => {
@@ -246,49 +255,132 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  // Block Date or Slot
-  const handleBlockDate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!blockDate) return;
+  // Real-time conflict calculator for proposed block
+  const liveBlockConflicts = useMemo(() => {
+    if (!blockDate) return [];
+    const dayAppointments = appointments.filter(a => a.fecha === blockDate && a.estado !== 'cancelado');
+
+    if (blockType === 'dia_completo') {
+      return dayAppointments;
+    }
+
+    if (!blockStartHour || !blockEndHour) return [];
+
+    const [sh, sm] = blockStartHour.split(':').map(Number);
+    const [eh, em] = blockEndHour.split(':').map(Number);
+    const startM = (sh || 0) * 60 + (sm || 0);
+    const endM = (eh || 0) * 60 + (em || 0);
+
+    if (startM >= endM) return [];
+
+    return dayAppointments.filter(apt => {
+      const [ash, asm] = apt.horaInicio.split(':').map(Number);
+      const [aeh, aem] = apt.horaFin.split(':').map(Number);
+      const aptStart = (ash || 0) * 60 + (asm || 0);
+      const aptEnd = (aeh || 0) * 60 + (aem || 0);
+      return Math.max(startM, aptStart) < Math.min(endM, aptEnd);
+    });
+  }, [blockDate, blockType, blockStartHour, blockEndHour, appointments]);
+
+  // Block Date or Range Slot
+  const handleBlockSubmit = async (e?: React.FormEvent, force: boolean = false) => {
+    if (e) e.preventDefault();
+    if (!blockDate) {
+      setBlockErrorMsg('Seleccioná una fecha válida.');
+      return;
+    }
+
+    if (blockType === 'rango_horario') {
+      if (!blockStartHour || !blockEndHour) {
+        setBlockErrorMsg('Definí la hora de inicio y de fin.');
+        return;
+      }
+      const [sh, sm] = blockStartHour.split(':').map(Number);
+      const [eh, em] = blockEndHour.split(':').map(Number);
+      if ((sh * 60 + sm) >= (eh * 60 + em)) {
+        setBlockErrorMsg('La hora de fin debe ser posterior a la hora de inicio.');
+        return;
+      }
+    }
+
+    setIsSubmittingBlock(true);
+    setBlockErrorMsg(null);
+    setBlockSuccessMsg(null);
+    setServerBlockConflicts([]);
+
     try {
       const res = await fetch('/api/admin/bloquear-horario', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           fecha: blockDate,
-          hora: blockHour || undefined
+          tipo: blockType,
+          horaInicio: blockType === 'rango_horario' ? blockStartHour : undefined,
+          horaFin: blockType === 'rango_horario' ? blockEndHour : undefined,
+          motivo: blockMotivo || undefined,
+          force
         })
+      });
+
+      const data = await res.json();
+
+      if (res.status === 409) {
+        setServerBlockConflicts(data.conflicts || []);
+        setBlockErrorMsg(data.error || 'Existen turnos reservados que coinciden con este horario.');
+        setIsSubmittingBlock(false);
+        return;
+      }
+
+      if (!res.ok) {
+        setBlockErrorMsg(data.error || 'No se pudo registrar el bloqueo.');
+        setIsSubmittingBlock(false);
+        return;
+      }
+
+      setConfig(data.config);
+      setBlockSuccessMsg(
+        blockType === 'dia_completo'
+          ? `Día completo (${blockDate}) bloqueado exitosamente.`
+          : `Franja ${blockStartHour} - ${blockEndHour} hs del ${blockDate} bloqueada exitosamente.`
+      );
+      setBlockMotivo('');
+      setServerBlockConflicts([]);
+      loadAdminData();
+      onRefreshPublicData();
+    } catch (err) {
+      console.error('Error blocking date/time:', err);
+      setBlockErrorMsg('Error al conectar con el servidor.');
+    } finally {
+      setIsSubmittingBlock(false);
+    }
+  };
+
+  // Remove Block (by ID or date)
+  const handleDeleteBlock = async (identifier: string) => {
+    try {
+      const res = await fetch(`/api/admin/bloquear-horario/${encodeURIComponent(identifier)}`, {
+        method: 'DELETE'
       });
       if (res.ok) {
         const data = await res.json();
         setConfig(data.config);
-        setBlockDate('');
-        setBlockHour('');
-        alert('Bloqueo registrado correctamente.');
-        onRefreshPublicData();
-      }
-    } catch (err) {
-      console.error('Error blocking date:', err);
-    }
-  };
-
-  // Remove Block
-  const handleRemoveBlockedDate = async (dateStr: string) => {
-    if (!config) return;
-    const newBlocked = config.diasBloqueados.filter(d => d !== dateStr);
-    try {
-      const res = await fetch('/api/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ diasBloqueados: newBlocked })
-      });
-      if (res.ok) {
-        setConfig(await res.json());
+        setBlockSuccessMsg('Bloqueo eliminado correctamente.');
+        loadAdminData();
         onRefreshPublicData();
       }
     } catch (err) {
       console.error('Error removing block:', err);
     }
+  };
+
+  // Quick Preset Helper for Duration
+  const setBlockDurationHours = (hours: number) => {
+    if (!blockStartHour) return;
+    const [h, m] = blockStartHour.split(':').map(Number);
+    const endMinutes = h * 60 + m + hours * 60;
+    const endH = Math.min(23, Math.floor(endMinutes / 60));
+    const endM = endMinutes % 60;
+    setBlockEndHour(`${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`);
   };
 
   // Save Service (Create or Edit)
@@ -355,6 +447,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     return true;
   });
 
+  if (!isOpen) return null;
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-6xl w-full max-h-[92vh] overflow-hidden shadow-2xl flex flex-col border border-[#E8DCD5]">
@@ -374,6 +468,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {isAuthenticated && dbStatus && (
+              <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border ${
+                dbStatus.postgresConnected 
+                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/30' 
+                  : 'bg-[#3A2F28] text-[#D9C9BF] border-[#5A4A3E]'
+              }`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${dbStatus.postgresConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                <span>{dbStatus.postgresConnected ? '🐘 PostgreSQL Conectado' : '📁 Almacenamiento Local'}</span>
+              </div>
+            )}
             {isAuthenticated && (
               <button
                 onClick={loadAdminData}
@@ -852,66 +956,362 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* TAB 3: BLOQUEO DE DÍAS Y HORARIOS */}
               {activeTab === 'bloqueos' && (
                 <div className="max-w-3xl mx-auto space-y-6">
-                  <div className="bg-white p-6 rounded-3xl border border-[#E8DCD5]">
-                    <h4 className="font-serif text-xl font-medium text-[#241E1A] mb-2">
-                      Bloquear Días o Franjas Horarias
-                    </h4>
-                    <p className="text-xs text-[#7A6B62] mb-6">
-                      Los días o franjas horarias bloqueadas quedarán inaccesibles en el motor de reservas público.
-                    </p>
+                  {/* Main Block Configuration Card */}
+                  <div className="bg-white p-6 rounded-3xl border border-[#E8DCD5] shadow-xs">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-9 h-9 rounded-xl bg-[#FAF7F2] border border-[#E8DCD5] flex items-center justify-center text-[#8E4455]">
+                        <Ban className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-serif text-xl font-medium text-[#241E1A]">
+                          Bloqueo de Agenda y Horarios
+                        </h4>
+                        <p className="text-xs text-[#7A6B62]">
+                          Reservá franjas para descansos, cursos o bloqueá días enteros. El sistema te advertirá si se pisa con turnos existentes.
+                        </p>
+                      </div>
+                    </div>
 
-                    <form onSubmit={handleBlockDate} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-                      <div>
-                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">Fecha a bloquear *</label>
-                        <input
-                          type="date"
-                          required
-                          value={blockDate}
-                          onChange={(e) => setBlockDate(e.target.value)}
-                          className="w-full p-2 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">Hora específica (Opcional)</label>
-                        <input
-                          type="time"
-                          value={blockHour}
-                          onChange={(e) => setBlockHour(e.target.value)}
-                          placeholder="Todo el día si queda vacío"
-                          className="w-full p-2 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                        />
-                      </div>
+                    {/* Mode Selector Tabs */}
+                    <div className="flex bg-[#FAF7F2] p-1 rounded-2xl border border-[#E8DCD5] my-5">
                       <button
-                        type="submit"
-                        className="py-2.5 px-4 rounded-xl bg-[#241E1A] text-white text-xs font-medium hover:bg-[#8E4455] transition-all cursor-pointer"
+                        type="button"
+                        onClick={() => { setBlockType('rango_horario'); setServerBlockConflicts([]); }}
+                        className={`flex-1 py-2 text-xs font-medium rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                          blockType === 'rango_horario'
+                            ? 'bg-white text-[#241E1A] shadow-xs border border-[#E8DCD5]'
+                            : 'text-[#7A6B62] hover:text-[#241E1A]'
+                        }`}
                       >
-                        Bloquear en Agenda
+                        <Clock className="w-3.5 h-3.5" />
+                        Franja / Rango Horario
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => { setBlockType('dia_completo'); setServerBlockConflicts([]); }}
+                        className={`flex-1 py-2 text-xs font-medium rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                          blockType === 'dia_completo'
+                            ? 'bg-white text-[#241E1A] shadow-xs border border-[#E8DCD5]'
+                            : 'text-[#7A6B62] hover:text-[#241E1A]'
+                        }`}
+                      >
+                        <CalendarIcon className="w-3.5 h-3.5" />
+                        Día Completo (Cierre Total)
+                      </button>
+                    </div>
+
+                    <form onSubmit={(e) => handleBlockSubmit(e, false)} className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-[#4A3E39] mb-1">
+                            Fecha a Bloquear *
+                          </label>
+                          <input
+                            type="date"
+                            required
+                            value={blockDate}
+                            onChange={(e) => {
+                              setBlockDate(e.target.value);
+                              setServerBlockConflicts([]);
+                              setBlockErrorMsg(null);
+                            }}
+                            className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                          />
+                        </div>
+
+                        {blockType === 'rango_horario' ? (
+                          <>
+                            <div>
+                              <label className="block text-xs font-medium text-[#4A3E39] mb-1">
+                                Hora Inicio *
+                              </label>
+                              <input
+                                type="time"
+                                required
+                                value={blockStartHour}
+                                onChange={(e) => {
+                                  setBlockStartHour(e.target.value);
+                                  setServerBlockConflicts([]);
+                                  setBlockErrorMsg(null);
+                                }}
+                                className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs font-medium text-[#4A3E39] mb-1">
+                                Hora Fin *
+                              </label>
+                              <input
+                                type="time"
+                                required
+                                value={blockEndHour}
+                                onChange={(e) => {
+                                  setBlockEndHour(e.target.value);
+                                  setServerBlockConflicts([]);
+                                  setBlockErrorMsg(null);
+                                }}
+                                className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                              />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="sm:col-span-2 flex items-center p-3 rounded-xl bg-[#FAF7F2] border border-[#E8DCD5] text-xs text-[#7A6B62]">
+                            <span>Se deshabilitarán todos los turnos y la agenda pública para esta fecha completa.</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Presets for range */}
+                      {blockType === 'rango_horario' && (
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <span className="text-[11px] text-[#7A6B62] font-medium">Accesos rápidos:</span>
+                          <button
+                            type="button"
+                            onClick={() => setBlockDurationHours(1)}
+                            className="px-2.5 py-1 text-[11px] rounded-lg bg-[#FAF7F2] hover:bg-[#E8DCD5] text-[#4A3E39] border border-[#D9C9BF] transition-all cursor-pointer"
+                          >
+                            +1 Hora
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setBlockDurationHours(2)}
+                            className="px-2.5 py-1 text-[11px] rounded-lg bg-[#FAF7F2] hover:bg-[#E8DCD5] text-[#4A3E39] border border-[#D9C9BF] transition-all cursor-pointer"
+                          >
+                            +2 Horas
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setBlockDurationHours(3)}
+                            className="px-2.5 py-1 text-[11px] rounded-lg bg-[#FAF7F2] hover:bg-[#E8DCD5] text-[#4A3E39] border border-[#D9C9BF] transition-all cursor-pointer"
+                          >
+                            +3 Horas
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setBlockStartHour('09:00'); setBlockEndHour('13:00'); }}
+                            className="px-2.5 py-1 text-[11px] rounded-lg bg-[#FAF7F2] hover:bg-[#E8DCD5] text-[#4A3E39] border border-[#D9C9BF] transition-all cursor-pointer"
+                          >
+                            Mañana (09:00 - 13:00)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setBlockStartHour('14:00'); setBlockEndHour('19:00'); }}
+                            className="px-2.5 py-1 text-[11px] rounded-lg bg-[#FAF7F2] hover:bg-[#E8DCD5] text-[#4A3E39] border border-[#D9C9BF] transition-all cursor-pointer"
+                          >
+                            Tarde (14:00 - 19:00)
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Motivo Input */}
+                      <div>
+                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">
+                          Motivo / Descripción (Opcional)
+                        </label>
+                        <input
+                          type="text"
+                          value={blockMotivo}
+                          onChange={(e) => setBlockMotivo(e.target.value)}
+                          placeholder="Ej: Capacitación técnica, almuerzo, trámite, feriado..."
+                          className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                        />
+                      </div>
+
+                      {/* LIVE CONFLICT DETECTION ALERT */}
+                      {(liveBlockConflicts.length > 0 || serverBlockConflicts.length > 0) && (
+                        <div className="p-4 rounded-2xl bg-amber-50/90 border-2 border-amber-300 text-amber-900 space-y-3 animate-in fade-in">
+                          <div className="flex items-start gap-2.5">
+                            <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <h5 className="text-xs font-bold text-amber-900 uppercase tracking-wider">
+                                ¡Atención! Se pisa con {(serverBlockConflicts.length || liveBlockConflicts.length)} turno(s) agendado(s)
+                              </h5>
+                              <p className="text-xs text-amber-800 mt-0.5">
+                                Hay clientas que ya tienen reservas confirmadas dentro de este rango. Si bloqueás este horario, no podrán ingresar nuevas reservas en la web.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5 pt-1">
+                            <p className="text-[11px] font-semibold text-amber-950">Turnos afectados en esta fecha:</p>
+                            <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                              {(serverBlockConflicts.length > 0 ? serverBlockConflicts : liveBlockConflicts).map((apt: any) => (
+                                <div 
+                                  key={apt.id || apt.codigo}
+                                  className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-amber-200 text-xs shadow-2xs"
+                                >
+                                  <div>
+                                    <div className="font-medium text-[#241E1A] flex items-center gap-1.5">
+                                      <span>{apt.nombre} {apt.apellido || ''}</span>
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-mono">
+                                        {apt.codigo || apt.id}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-[#7A6B62]">
+                                      {apt.servicioNombre} • {apt.horaInicio} a {apt.horaFin} hs
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <a
+                                      href={`https://wa.me/${apt.telefono.replace(/\D/g, '')}?text=Hola%20${encodeURIComponent(apt.nombre)},%20te%20escribo%20de%20Gwen%20Nails%20respecto%20a%20tu%20turno...`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-all text-[11px] flex items-center gap-1"
+                                      title="Contactar clienta"
+                                    >
+                                      <MessageCircle className="w-3.5 h-3.5" />
+                                      <span className="hidden sm:inline">WhatsApp</span>
+                                    </a>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => handleBlockSubmit(undefined, true)}
+                              disabled={isSubmittingBlock}
+                              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                            >
+                              <AlertCircle className="w-4 h-4" />
+                              Bloquear de todos modos (Confirmar)
+                            </button>
+                            <span className="text-[11px] text-amber-800 italic">
+                              Los turnos existentes seguirán activos en la lista de turnos.
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Success and Error messages */}
+                      {blockErrorMsg && !serverBlockConflicts.length && (
+                        <p className="text-xs text-rose-600 bg-rose-50 p-3 rounded-xl border border-rose-200 flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          {blockErrorMsg}
+                        </p>
+                      )}
+
+                      {blockSuccessMsg && (
+                        <p className="text-xs text-emerald-700 bg-emerald-50 p-3 rounded-xl border border-emerald-200 flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 shrink-0" />
+                          {blockSuccessMsg}
+                        </p>
+                      )}
+
+                      {/* Submit button when no active collisions shown */}
+                      {liveBlockConflicts.length === 0 && serverBlockConflicts.length === 0 && (
+                        <button
+                          type="submit"
+                          disabled={isSubmittingBlock}
+                          className="w-full py-3 rounded-xl bg-[#241E1A] hover:bg-[#8E4455] text-white text-xs font-medium transition-all shadow-xs cursor-pointer flex items-center justify-center gap-2"
+                        >
+                          {isSubmittingBlock ? (
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Ban className="w-4 h-4" />
+                          )}
+                          {blockType === 'dia_completo' ? 'Bloquear Día Completo en Agenda' : 'Bloquear Franja Horaria Seleccionada'}
+                        </button>
+                      )}
                     </form>
                   </div>
 
-                  {/* List of currently blocked dates */}
-                  <div className="bg-white p-6 rounded-3xl border border-[#E8DCD5]">
-                    <h5 className="font-serif text-base font-medium text-[#241E1A] mb-4">
-                      Días Completos Bloqueados ({config?.diasBloqueados?.length || 0})
-                    </h5>
+                  {/* ACTIVE DETAILED RANGE BLOCKS */}
+                  <div className="bg-white p-6 rounded-3xl border border-[#E8DCD5] shadow-xs">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <Clock className="w-4 h-4 text-[#8E4455]" />
+                        <h5 className="font-serif text-base font-medium text-[#241E1A]">
+                          Franjas Horarias Bloqueadas ({config?.bloqueosDetallados?.filter(b => b.tipo === 'rango_horario').length || 0})
+                        </h5>
+                      </div>
+                    </div>
 
-                    {!config?.diasBloqueados || config.diasBloqueados.length === 0 ? (
-                      <p className="text-xs text-[#7A6B62]">No hay fechas bloqueadas actualmente.</p>
+                    {(!config?.bloqueosDetallados || config.bloqueosDetallados.filter(b => b.tipo === 'rango_horario').length === 0) ? (
+                      <p className="text-xs text-[#7A6B62] py-2 italic">
+                        No hay franjas horarias específicas bloqueadas actualmente.
+                      </p>
                     ) : (
-                      <div className="flex flex-wrap gap-2">
-                        {config.diasBloqueados.map(d => (
-                          <div key={d} className="flex items-center gap-2 bg-[#FAF7F2] px-3 py-1.5 rounded-lg border border-[#E8DCD5] text-xs">
-                            <span className="font-mono text-[#8E4455]">{d}</span>
-                            <button
-                              onClick={() => handleRemoveBlockedDate(d)}
-                              className="text-[#8C7A70] hover:text-rose-600"
-                              title="Desbloquear"
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {config.bloqueosDetallados
+                          .filter(b => b.tipo === 'rango_horario')
+                          .map((b) => (
+                            <div 
+                              key={b.id || `${b.fecha}-${b.horaInicio}`}
+                              className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#E8DCD5] flex items-center justify-between gap-3 group hover:border-[#D9C9BF] transition-all"
                             >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs font-semibold text-[#8E4455] bg-white px-2 py-0.5 rounded-md border border-[#E8DCD5]">
+                                    {b.fecha}
+                                  </span>
+                                  <span className="text-xs font-medium text-[#241E1A]">
+                                    {b.horaInicio} - {b.horaFin} hs
+                                  </span>
+                                </div>
+                                {b.motivo && (
+                                  <p className="text-[11px] text-[#7A6B62] line-clamp-1">
+                                    {b.motivo}
+                                  </p>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBlock(b.id || b.fecha)}
+                                className="p-2 rounded-xl text-[#8C7A70] hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
+                                title="Desbloquear este horario"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ACTIVE FULL-DAY BLOCKS */}
+                  <div className="bg-white p-6 rounded-3xl border border-[#E8DCD5] shadow-xs">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <CalendarIcon className="w-4 h-4 text-[#8E4455]" />
+                        <h5 className="font-serif text-base font-medium text-[#241E1A]">
+                          Días Completos Cerrados ({config?.diasBloqueados?.length || 0})
+                        </h5>
+                      </div>
+                    </div>
+
+                    {(!config?.diasBloqueados || config.diasBloqueados.length === 0) ? (
+                      <p className="text-xs text-[#7A6B62] py-2 italic">
+                        No hay días completos bloqueados actualmente.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2.5">
+                        {config.diasBloqueados.map(d => {
+                          const detailed = config.bloqueosDetallados?.find(b => b.fecha === d && b.tipo === 'dia_completo');
+                          return (
+                            <div 
+                              key={d} 
+                              className="flex items-center gap-2.5 bg-[#FAF7F2] px-3.5 py-2 rounded-xl border border-[#E8DCD5] text-xs group hover:border-[#D9C9BF] transition-all"
+                            >
+                              <div>
+                                <span className="font-mono font-medium text-[#8E4455]">{d}</span>
+                                {detailed?.motivo && (
+                                  <span className="text-[11px] text-[#7A6B62] ml-1.5">({detailed.motivo})</span>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteBlock(detailed?.id || d)}
+                                className="p-1 rounded-md text-[#8C7A70] hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
+                                title="Habilitar día"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>

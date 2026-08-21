@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Calendar as CalendarIcon, 
   Clock, 
@@ -40,6 +40,10 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
   const [telefono, setTelefono] = useState<string>('');
   const [observaciones, setObservaciones] = useState<string>('');
 
+  // Refs for smooth focus/scroll
+  const confirmationRef = useRef<HTMLDivElement | null>(null);
+  const sectionRef = useRef<HTMLElement | null>(null);
+
   // Calendar view state
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
 
@@ -55,6 +59,19 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     turno: Appointment;
     whatsappUrl: string;
   } | null>(null);
+
+  // Automatically scroll to the confirmed booking card when reservation succeeds
+  useEffect(() => {
+    if (confirmedBooking) {
+      setTimeout(() => {
+        if (confirmationRef.current) {
+          confirmationRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else if (sectionRef.current) {
+          sectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 60);
+    }
+  }, [confirmedBooking]);
 
   // Field validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -333,7 +350,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
   };
 
   return (
-    <section id="turnos" className="py-20 md:py-28 bg-[#FAF7F2] relative">
+    <section id="turnos" ref={sectionRef} className="py-20 md:py-28 bg-[#FAF7F2] relative scroll-mt-6">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Section Title */}
@@ -351,7 +368,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
         {/* Confirmation Success Modal / View */}
         {confirmedBooking ? (
-          <div className="max-w-2xl mx-auto bg-white rounded-3xl p-8 sm:p-12 border border-[#E8DCD5] shadow-xl text-center animate-in zoom-in-95 duration-300">
+          <div ref={confirmationRef} className="max-w-2xl mx-auto bg-white rounded-3xl p-8 sm:p-12 border border-[#E8DCD5] shadow-xl text-center animate-in zoom-in-95 duration-300 scroll-mt-24">
             <div className="w-16 h-16 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-6 border border-emerald-200">
               <CheckCircle2 className="w-8 h-8" />
             </div>

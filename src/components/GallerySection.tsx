@@ -46,7 +46,7 @@ export const GallerySection: React.FC = () => {
     {
       id: '4',
       image: '/gallery-4.jpg',
-      fallbackImage: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?auto=format&fit=crop&w=800&q=80',
+      fallbackImage: 'https://images.unsplash.com/photo-1607779097040-26e80aa78e66?auto=format&fit=crop&w=800&q=80',
       title: 'Aura Nails en Lila y Microbrillo',
       category: 'tendencia',
       tag: 'Aura Nails · Degradé',

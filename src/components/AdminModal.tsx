@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   X, 
   Lock, 
@@ -19,6 +19,7 @@ import {
   Trash2, 
   Edit3, 
   Check, 
+  CheckCircle2,
   User, 
   FileText,
   Sparkles,
@@ -37,6 +38,39 @@ interface AdminModalProps {
   onClose: () => void;
   onRefreshPublicData: () => void;
 }
+
+// Presets of icon motifs for services
+const SERVICE_ICON_PRESETS = [
+  { icon: '💅', label: 'Esmalte Clásico', desc: 'Manicura & Color' },
+  { icon: '✨', label: 'Brillos & Glow', desc: 'Semipermanente / Destellos' },
+  { icon: '🌸', label: 'Flor & Soft Gel', desc: 'Delicadeza y Tips Gel' },
+  { icon: '💎', label: 'Diamante / Lujo', desc: 'Kapping & Refuerzo' },
+  { icon: '🎨', label: 'Nail Art / Pincel', desc: 'Diseño a Mano Alzada' },
+  { icon: '👑', label: 'Corona / Royal', desc: 'Esculpidas & Polygel' },
+  { icon: '🪄', label: 'Efectos Mágicos', desc: 'Técnicas Especiales' },
+  { icon: '🌿', label: 'Spa & Botánico', desc: 'Nutrición & Cuidado' },
+  { icon: '🪞', label: 'Chrome & Espejo', desc: 'Glazed & Efecto Espejo' },
+  { icon: '🦋', label: 'Mariposa / 3D', desc: 'Tendencia & Dijes' },
+  { icon: '🌹', label: 'Rosa / Romance', desc: 'Elegancia y Acabado' },
+  { icon: '💫', label: 'Destello / Shimmer', desc: 'Microbrillo & Aura' },
+  { icon: '💖', label: 'Corazón / Pasión', desc: 'Rosa & Glamour' },
+  { icon: '🤍', label: 'Blanco & Nude', desc: 'Minimal & Milky White' }
+];
+
+// Presets of common service features for fast 1-click addition
+const SERVICE_FEATURE_PRESETS = [
+  'Mano alzada personalizada',
+  'Tendencias: Chrome, Glazed Donut, Aura, French 3D',
+  'Aplicación de foil, microbrillos y cristalería',
+  'Asesoramiento estético personalizado',
+  'Limpieza combinada profunda y repujado de cutículas',
+  'Nivelación y refuerzo estructural con gel constructor',
+  'Esmaltado en gel con acabado ultrabrillo o mate',
+  'Nutrición intensiva con aceites esenciales y crema botánica',
+  'Duración prolongada de hasta 3 semanas sin saltarse',
+  'Tips de soft gel completos sin limado agresivo',
+  'Efecto cat eye magnético y destellos multicapa'
+];
 
 export const AdminModal: React.FC<AdminModalProps> = ({
   isOpen,
@@ -94,7 +128,21 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   // Service edit/create state
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [isCreatingService, setIsCreatingService] = useState<boolean>(false);
-  const [serviceForm, setServiceForm] = useState({
+  const [serviceToDelete, setServiceToDelete] = useState<{ id: string; nombre: string } | null>(null);
+  const [serviceSuccessMsg, setServiceSuccessMsg] = useState<string | null>(null);
+  const [customFeatureInput, setCustomFeatureInput] = useState<string>('');
+  const serviceFormRef = useRef<HTMLDivElement | null>(null);
+  const [serviceForm, setServiceForm] = useState<{
+    nombre: string;
+    categoria: 'esculpidas' | 'esmaltado' | 'cuidado' | 'arte';
+    descripcion: string;
+    duracionMinutos: number;
+    precio: number;
+    esPopular: boolean;
+    icono: string;
+    detalles: string[];
+    activo: boolean;
+  }>({
     nombre: '',
     categoria: 'cuidado',
     descripcion: '',
@@ -102,8 +150,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     precio: 20000,
     esPopular: false,
     icono: '💅',
+    detalles: [],
     activo: true
   });
+
+  const scrollToServiceForm = () => {
+    setTimeout(() => {
+      if (serviceFormRef.current) {
+        serviceFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 50);
+  };
 
   // Verify PIN
   const handlePinSubmit = async (e: React.FormEvent) => {
@@ -395,6 +452,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         });
         if (res.ok) {
           setEditingService(null);
+          setServiceSuccessMsg(`Servicio "${serviceForm.nombre}" actualizado con éxito.`);
+          setTimeout(() => setServiceSuccessMsg(null), 4000);
           loadAdminData();
           onRefreshPublicData();
         }
@@ -406,12 +465,48 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         });
         if (res.ok) {
           setIsCreatingService(false);
+          setServiceSuccessMsg(`Nuevo servicio "${serviceForm.nombre}" creado con éxito.`);
+          setTimeout(() => setServiceSuccessMsg(null), 4000);
           loadAdminData();
           onRefreshPublicData();
         }
       }
     } catch (err) {
       console.error('Error saving service:', err);
+    }
+  };
+
+  // Delete Service (Admin Modal Confirmation)
+  const executeDeleteService = async () => {
+    if (!serviceToDelete) return;
+    const { id, nombre } = serviceToDelete;
+    
+    // Optimistic UI update so it immediately disappears
+    const previousServices = [...services];
+    setServices(prev => prev.filter(s => s.id !== id));
+    if (editingService?.id === id) {
+      setEditingService(null);
+    }
+    setServiceToDelete(null);
+
+    try {
+      const res = await fetch(`/api/servicios/${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setServiceSuccessMsg(`Servicio "${nombre}" eliminado correctamente.`);
+        setTimeout(() => setServiceSuccessMsg(null), 4000);
+        loadAdminData();
+        onRefreshPublicData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error || 'No se pudo eliminar el servicio del servidor.');
+        setServices(previousServices);
+      }
+    } catch (err) {
+      console.error('Error deleting service:', err);
+      alert('Error de conexión al intentar eliminar el servicio.');
+      setServices(previousServices);
     }
   };
 
@@ -1321,17 +1416,27 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               {/* TAB 4: SERVICIOS Y PRECIOS */}
               {activeTab === 'servicios' && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
+                  {serviceSuccessMsg && (
+                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2.5 shadow-xs">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span className="font-medium">{serviceSuccessMsg}</span>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
                       <h4 className="font-serif text-2xl font-medium text-[#241E1A]">
                         Carta de Servicios y Valores
                       </h4>
-                      <p className="text-xs text-[#7A6B62]">Actualizá precios, duraciones y disponibilidad en vivo.</p>
+                      <p className="text-xs text-[#7A6B62]">
+                        Creá nuevos servicios, elegí su ícono, agregá características detalladas y actualizá precios en vivo.
+                      </p>
                     </div>
                     <button
                       onClick={() => {
                         setIsCreatingService(true);
                         setEditingService(null);
+                        setCustomFeatureInput('');
                         setServiceForm({
                           nombre: '',
                           categoria: 'cuidado',
@@ -1340,101 +1445,328 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           precio: 20000,
                           esPopular: false,
                           icono: '💅',
+                          detalles: [],
                           activo: true
                         });
+                        scrollToServiceForm();
                       }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#8E4455] text-white text-xs font-medium hover:bg-[#783645] transition-all cursor-pointer"
+                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-[#8E4455] text-white text-xs font-medium hover:bg-[#783645] transition-all cursor-pointer shadow-xs"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Agregar Servicio</span>
+                      <Plus className="w-4 h-4" />
+                      <span>Agregar Nuevo Servicio</span>
                     </button>
                   </div>
 
                   {/* Create / Edit Form Modal or Inline */}
                   {(isCreatingService || editingService) && (
-                    <div className="bg-white p-6 rounded-3xl border-2 border-[#8E4455]/40 shadow-md">
-                      <h5 className="font-serif text-lg font-medium text-[#241E1A] mb-4">
-                        {editingService ? `Editar: ${editingService.nombre}` : 'Nuevo Servicio'}
-                      </h5>
-                      <form onSubmit={handleSaveService} className="space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div ref={serviceFormRef} className="bg-white p-6 sm:p-7 rounded-3xl border-2 border-[#8E4455] shadow-lg scroll-mt-6">
+                      <div className="flex items-center justify-between mb-5 pb-3 border-b border-[#E8DCD5]">
+                        <div className="flex items-center gap-3">
+                          <span className="w-10 h-10 rounded-2xl bg-[#FAF7F2] border border-[#E8DCD5] flex items-center justify-center text-2xl shadow-xs">
+                            {serviceForm.icono || '💅'}
+                          </span>
                           <div>
-                            <label className="block text-xs font-medium text-[#4A3E39] mb-1">Nombre *</label>
+                            <h5 className="font-serif text-lg font-medium text-[#241E1A]">
+                              {editingService ? `Editar: ${editingService.nombre}` : 'Nuevo Servicio'}
+                            </h5>
+                            <span className="text-[11px] text-[#7A6B62]">
+                              Completá los datos, seleccioná el ícono y personalizá las características.
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingService(false);
+                            setEditingService(null);
+                            setCustomFeatureInput('');
+                          }}
+                          className="p-1.5 rounded-xl text-[#7A6B62] hover:bg-[#FAF7F2]"
+                        >
+                          <X className="w-5 h-5" />
+                        </button>
+                      </div>
+
+                      <form onSubmit={handleSaveService} className="space-y-5">
+                        {/* Selector de Iconos / Motivos */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <label className="block text-xs font-semibold text-[#4A3E39]">
+                              Seleccionar Ícono / Motivo del Servicio *
+                            </label>
+                            <span className="text-[11px] text-[#8E4455] font-medium">
+                              Ícono actual: {serviceForm.icono}
+                            </span>
+                          </div>
+                          
+                          {/* Grid de motivos predefinidos */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mb-3">
+                            {SERVICE_ICON_PRESETS.map((preset) => {
+                              const isSelected = serviceForm.icono === preset.icon;
+                              return (
+                                <button
+                                  key={preset.icon}
+                                  type="button"
+                                  onClick={() => setServiceForm({ ...serviceForm, icono: preset.icon })}
+                                  className={`p-2.5 rounded-2xl border text-left transition-all flex flex-col items-center justify-center text-center gap-1 cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-[#8E4455] text-white border-[#8E4455] shadow-sm scale-[1.02]'
+                                      : 'bg-[#FAF7F2] text-[#4A3E39] border-[#E8DCD5] hover:border-[#8E4455]/50 hover:bg-white'
+                                  }`}
+                                >
+                                  <span className="text-2xl leading-none">{preset.icon}</span>
+                                  <span className={`text-[11px] font-medium leading-tight ${isSelected ? 'text-white' : 'text-[#241E1A]'}`}>
+                                    {preset.label}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Personalizado opcional */}
+                          <div className="flex items-center gap-3 bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E8DCD5]">
+                            <span className="text-xs text-[#7A6B62]">¿Querés otro emoji o símbolo?</span>
+                            <input
+                              type="text"
+                              maxLength={4}
+                              value={serviceForm.icono}
+                              onChange={(e) => setServiceForm({ ...serviceForm, icono: e.target.value })}
+                              placeholder="Ej: 💅"
+                              className="w-16 p-1.5 text-center text-base rounded-lg bg-white border border-[#D9C9BF] text-[#241E1A]"
+                            />
+                            <span className="text-[11px] text-[#8C7A70]">Podés pegar cualquier emoji o motivo directamente.</span>
+                          </div>
+                        </div>
+
+                        {/* Basic Info */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                          <div className="sm:col-span-2">
+                            <label className="block text-xs font-medium text-[#4A3E39] mb-1">Nombre del Servicio *</label>
                             <input
                               type="text"
                               required
                               value={serviceForm.nombre}
                               onChange={(e) => setServiceForm({ ...serviceForm, nombre: e.target.value })}
-                              className="w-full p-2 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
+                              placeholder="Ej: Kapping Gel con Nivelación Rusa"
+                              className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
                             />
                           </div>
+
+                          <div>
+                            <label className="block text-xs font-medium text-[#4A3E39] mb-1">Categoría *</label>
+                            <select
+                              value={serviceForm.categoria}
+                              onChange={(e) => setServiceForm({ ...serviceForm, categoria: e.target.value as any })}
+                              className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
+                            >
+                              <option value="cuidado">Kapping & Cuidado</option>
+                              <option value="esmaltado">Semipermanente</option>
+                              <option value="esculpidas">Soft Gel & Esculpidas</option>
+                              <option value="arte">Nail Art & Diseños</option>
+                            </select>
+                          </div>
+
                           <div>
                             <label className="block text-xs font-medium text-[#4A3E39] mb-1">Precio ($ ARS) *</label>
                             <input
                               type="number"
                               required
+                              min={0}
+                              step={500}
                               value={serviceForm.precio}
                               onChange={(e) => setServiceForm({ ...serviceForm, precio: Number(e.target.value) })}
-                              className="w-full p-2 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
+                              className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
                             />
                           </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
                             <label className="block text-xs font-medium text-[#4A3E39] mb-1">Duración (minutos) *</label>
                             <input
                               type="number"
                               required
                               step={15}
+                              min={15}
+                              max={240}
                               value={serviceForm.duracionMinutos}
                               onChange={(e) => setServiceForm({ ...serviceForm, duracionMinutos: Number(e.target.value) })}
-                              className="w-full p-2 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
+                              className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
+                            />
+                          </div>
+
+                          <div className="sm:col-span-2">
+                            <label className="block text-xs font-medium text-[#4A3E39] mb-1">Descripción Breve</label>
+                            <input
+                              type="text"
+                              value={serviceForm.descripcion}
+                              onChange={(e) => setServiceForm({ ...serviceForm, descripcion: e.target.value })}
+                              placeholder="Ej: Refuerzo en gel para uñas naturales que previene quiebres."
+                              className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
                             />
                           </div>
                         </div>
 
-                        <div>
-                          <label className="block text-xs font-medium text-[#4A3E39] mb-1">Descripción</label>
-                          <textarea
-                            rows={2}
-                            value={serviceForm.descripcion}
-                            onChange={(e) => setServiceForm({ ...serviceForm, descripcion: e.target.value })}
-                            className="w-full p-2 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                          />
+                        {/* CARACTERÍSTICAS / DETALLES DEL SERVICIO */}
+                        <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#E8DCD5] space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <label className="block text-xs font-semibold text-[#241E1A]">
+                                Características del Servicio (Opcionales)
+                              </label>
+                              <p className="text-[11px] text-[#7A6B62]">
+                                Se muestran con tilde verde en la tarjeta pública del servicio.
+                              </p>
+                            </div>
+                            <span className="text-[11px] font-medium text-[#8E4455]">
+                              {serviceForm.detalles.length} añadidas
+                            </span>
+                          </div>
+
+                          {/* Lista de características actuales */}
+                          {serviceForm.detalles.length > 0 && (
+                            <div className="space-y-1.5">
+                              {serviceForm.detalles.map((detalle, idx) => (
+                                <div
+                                  key={idx}
+                                  className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white border border-[#E8DCD5] text-xs text-[#241E1A]"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Check className="w-3.5 h-3.5 text-[#8E4455] shrink-0" />
+                                    <span>{detalle}</span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const updated = [...serviceForm.detalles];
+                                      updated.splice(idx, 1);
+                                      setServiceForm({ ...serviceForm, detalles: updated });
+                                    }}
+                                    className="p-1 rounded-lg text-[#8C7A70] hover:text-rose-600 hover:bg-rose-50 cursor-pointer"
+                                    title="Quitar característica"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Campo para agregar característica personalizada */}
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={customFeatureInput}
+                              onChange={(e) => setCustomFeatureInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (customFeatureInput.trim()) {
+                                    setServiceForm({
+                                      ...serviceForm,
+                                      detalles: [...serviceForm.detalles, customFeatureInput.trim()]
+                                    });
+                                    setCustomFeatureInput('');
+                                  }
+                                }
+                              }}
+                              placeholder="Escribí una característica y hacé clic en Agregar..."
+                              className="flex-1 p-2 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A]"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (customFeatureInput.trim()) {
+                                  setServiceForm({
+                                    ...serviceForm,
+                                    detalles: [...serviceForm.detalles, customFeatureInput.trim()]
+                                  });
+                                  setCustomFeatureInput('');
+                                }
+                              }}
+                              className="px-3 py-2 rounded-xl bg-[#8E4455] text-white text-xs font-medium hover:bg-[#783645] transition-all cursor-pointer shrink-0"
+                            >
+                              + Agregar
+                            </button>
+                          </div>
+
+                          {/* Presets de sugerencias rápidas */}
+                          <div>
+                            <span className="block text-[11px] text-[#8C7A70] mb-1.5">
+                              Sugerencias rápidas (hacé clic para sumar):
+                            </span>
+                            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                              {SERVICE_FEATURE_PRESETS.map((preset, idx) => {
+                                const alreadyAdded = serviceForm.detalles.includes(preset);
+                                return (
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onClick={() => {
+                                      if (alreadyAdded) {
+                                        setServiceForm({
+                                          ...serviceForm,
+                                          detalles: serviceForm.detalles.filter(d => d !== preset)
+                                        });
+                                      } else {
+                                        setServiceForm({
+                                          ...serviceForm,
+                                          detalles: [...serviceForm.detalles, preset]
+                                        });
+                                      }
+                                    }}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] transition-all cursor-pointer border text-left ${
+                                      alreadyAdded
+                                        ? 'bg-[#8E4455] text-white border-[#8E4455]'
+                                        : 'bg-white text-[#5A4B43] border-[#E8DCD5] hover:border-[#8E4455]/50'
+                                    }`}
+                                  >
+                                    {alreadyAdded ? '✓ ' : '+ '}
+                                    {preset}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-6 text-xs">
-                          <label className="flex items-center gap-2 cursor-pointer">
+                        <div className="flex flex-wrap items-center gap-6 text-xs pt-1">
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
                             <input
                               type="checkbox"
                               checked={serviceForm.esPopular}
                               onChange={(e) => setServiceForm({ ...serviceForm, esPopular: e.target.checked })}
+                              className="w-4 h-4 text-[#8E4455] rounded-md focus:ring-0"
                             />
-                            <span>Marcar como "Más Elegido / Popular"</span>
+                            <span className="font-medium text-[#241E1A]">⭐ Destacar como "Más Elegido / Popular"</span>
                           </label>
 
-                          <label className="flex items-center gap-2 cursor-pointer">
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
                             <input
                               type="checkbox"
                               checked={serviceForm.activo}
                               onChange={(e) => setServiceForm({ ...serviceForm, activo: e.target.checked })}
+                              className="w-4 h-4 text-[#8E4455] rounded-md focus:ring-0"
                             />
-                            <span>Activo para reservas públicas</span>
+                            <span className="font-medium text-[#241E1A]">✅ Visible para reservas públicas</span>
                           </label>
                         </div>
 
-                        <div className="flex gap-2 justify-end pt-2">
+                        <div className="flex gap-2 justify-end pt-3 border-t border-[#E8DCD5]">
                           <button
                             type="button"
                             onClick={() => {
                               setIsCreatingService(false);
                               setEditingService(null);
+                              setCustomFeatureInput('');
                             }}
-                            className="px-4 py-2 rounded-xl text-xs text-[#5A4B43] hover:bg-[#FAF7F2]"
+                            className="px-4 py-2 rounded-xl text-xs text-[#5A4B43] hover:bg-[#FAF7F2] cursor-pointer"
                           >
                             Cancelar
                           </button>
                           <button
                             type="submit"
-                            className="px-5 py-2 rounded-xl bg-[#8E4455] text-white text-xs font-medium hover:bg-[#783645]"
+                            className="px-6 py-2.5 rounded-xl bg-[#8E4455] text-white text-xs font-medium hover:bg-[#783645] transition-all cursor-pointer shadow-xs"
                           >
                             Guardar Servicio
                           </button>
@@ -1448,52 +1780,111 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     {services.map(srv => (
                       <div
                         key={srv.id}
-                        className="bg-white p-5 rounded-2xl border border-[#E8DCD5] flex items-center justify-between gap-4"
+                        className={`bg-white p-5 rounded-2xl border transition-all flex items-center justify-between gap-4 ${
+                          !srv.activo ? 'opacity-60 border-dashed border-[#D9C9BF]' : 'border-[#E8DCD5] shadow-xs'
+                        }`}
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl bg-[#FAF7F2] border border-[#E8DCD5] flex items-center justify-center text-xl">
-                            {srv.icono}
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <div className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#E8DCD5] flex items-center justify-center text-2xl shrink-0">
+                            {srv.icono || '💅'}
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h5 className="font-serif font-medium text-base text-[#241E1A]">{srv.nombre}</h5>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h5 className="font-serif font-medium text-base text-[#241E1A] truncate">
+                                {srv.nombre}
+                              </h5>
                               {srv.esPopular && (
-                                <span className="text-[10px] bg-[#8E4455] text-white px-1.5 py-0.2 rounded-full font-bold">
+                                <span className="text-[10px] bg-[#8E4455] text-white px-2 py-0.5 rounded-full font-bold">
                                   POPULAR
                                 </span>
                               )}
+                              {!srv.activo && (
+                                <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full font-medium">
+                                  PAUSADO
+                                </span>
+                              )}
                             </div>
-                            <p className="text-xs text-[#7A6B62]">
-                              {srv.duracionMinutos} min · <strong className="text-[#8E4455]">${srv.precio.toLocaleString('es-AR')}</strong>
+                            <p className="text-xs text-[#7A6B62] mt-0.5">
+                              {srv.duracionMinutos} min · <strong className="text-[#8E4455] font-semibold">${srv.precio.toLocaleString('es-AR')}</strong>
                             </p>
+                            {srv.detalles && srv.detalles.length > 0 && (
+                              <p className="text-[11px] text-[#8C7A70] truncate mt-1">
+                                {srv.detalles.length} características incluidas
+                              </p>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             onClick={() => {
                               setEditingService(srv);
                               setIsCreatingService(false);
+                              setCustomFeatureInput('');
                               setServiceForm({
                                 nombre: srv.nombre,
                                 categoria: srv.categoria,
-                                descripcion: srv.descripcion,
+                                descripcion: srv.descripcion || '',
                                 duracionMinutos: srv.duracionMinutos,
                                 precio: srv.precio,
                                 esPopular: !!srv.esPopular,
                                 icono: srv.icono || '💅',
+                                detalles: Array.isArray(srv.detalles) ? [...srv.detalles] : [],
                                 activo: srv.activo
                               });
+                              scrollToServiceForm();
                             }}
-                            className="p-2 rounded-lg bg-[#FAF7F2] hover:bg-[#E8DCD5] text-[#5A4B43]"
-                            title="Editar"
+                            className="p-2 rounded-xl bg-[#FAF7F2] hover:bg-[#E8DCD5] text-[#5A4B43] transition-colors cursor-pointer"
+                            title="Editar servicio"
                           >
                             <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => setServiceToDelete({ id: srv.id, nombre: srv.nombre })}
+                            className="p-2 rounded-xl text-[#C4B0A3] hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Eliminar servicio"
+                          >
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
                     ))}
                   </div>
+
+                  {/* MODAL CONFIRMACIÓN DE BORRADO DE SERVICIO */}
+                  {serviceToDelete && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+                      <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full border border-[#E8DCD5] shadow-2xl space-y-4">
+                        <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto text-xl">
+                          <Trash2 className="w-6 h-6" />
+                        </div>
+                        <div className="text-center space-y-1.5">
+                          <h4 className="font-serif text-xl font-medium text-[#241E1A]">
+                            ¿Eliminar servicio?
+                          </h4>
+                          <p className="text-xs text-[#7A6B62] leading-relaxed">
+                            Estás a punto de eliminar <strong className="text-[#241E1A]">"{serviceToDelete.nombre}"</strong>. Esta acción quitará el servicio de la carta pública y no se puede deshacer.
+                          </p>
+                        </div>
+                        <div className="flex gap-2.5 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => setServiceToDelete(null)}
+                            className="flex-1 py-2.5 rounded-xl border border-[#D9C9BF] text-xs font-medium text-[#5A4B43] hover:bg-[#FAF7F2] transition-colors cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={executeDeleteService}
+                            className="flex-1 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-medium hover:bg-rose-700 transition-colors cursor-pointer shadow-xs"
+                          >
+                            Sí, eliminar
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -474,43 +474,61 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="divide-y divide-[#F2EAE4] rounded-2xl border border-[#E8DCD5] bg-white overflow-hidden shadow-xs">
                   {services.filter(s => s.activo).map((service) => {
                     const isSelected = selectedServiceId === service.id;
                     return (
-                      <div
+                      <button
+                        type="button"
                         key={service.id}
                         onClick={() => setSelectedServiceId(service.id)}
-                        className={`p-4 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between ${
+                        className={`w-full text-left p-3.5 sm:py-3.5 sm:px-5 flex items-start sm:items-center justify-between gap-3 transition-colors cursor-pointer ${
                           isSelected
-                            ? 'bg-[#FDF9F7] border-[#8E4455] ring-2 ring-[#8E4455]/20 shadow-xs'
-                            : 'bg-white border-[#E8DCD5] hover:border-[#8E4455]/40 hover:bg-[#FAF7F2]'
+                            ? 'bg-[#FDF6F4]'
+                            : 'hover:bg-[#FAF7F2]'
                         }`}
                       >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xl">{service.icono}</span>
-                            <span className="font-serif font-medium text-[#241E1A] text-base">
-                              {service.nombre}
-                            </span>
+                        <div className="flex items-start sm:items-center gap-3 min-w-0 flex-1">
+                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 mt-0.5 sm:mt-0 transition-colors ${
+                            isSelected
+                              ? 'border-[#8E4455] bg-[#8E4455]'
+                              : 'border-[#D9C9BF] bg-white'
+                          }`}>
+                            {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                           </div>
-                          {isSelected && (
-                            <div className="w-5 h-5 rounded-full bg-[#8E4455] text-white flex items-center justify-center shrink-0">
-                              <Check className="w-3 h-3" />
+
+                          <div className="flex-1 min-w-0">
+                            <div className={`text-sm sm:text-base font-medium leading-snug sm:truncate ${
+                              isSelected ? 'text-[#8E4455] font-semibold' : 'text-[#241E1A]'
+                            }`}>
+                              {service.nombre}
                             </div>
-                          )}
+                            
+                            {/* Información secundaria en móviles (2da línea) */}
+                            <div className="flex sm:hidden items-center gap-3 mt-1 text-xs">
+                              <span className="text-[#7A6B62] flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-[#8E4455]" />
+                                {service.duracionMinutos} min
+                              </span>
+                              <span className="text-[#D9C9BF]">·</span>
+                              <span className="font-semibold text-[#8E4455]">
+                                ${service.precio.toLocaleString('es-AR')}
+                              </span>
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="flex items-center justify-between text-xs pt-2 border-t border-[#F0E6DE]">
-                          <span className="flex items-center gap-1 text-[#7A6B62]">
+                        {/* Información en pantallas medianas y grandes (a la derecha) */}
+                        <div className="hidden sm:flex items-center gap-6 shrink-0 text-sm">
+                          <span className="text-[#7A6B62] flex items-center gap-1">
                             <Clock className="w-3.5 h-3.5 text-[#8E4455]" />
                             {service.duracionMinutos} min
                           </span>
-                          <span className="font-semibold text-[#8E4455] text-sm">
+                          <span className="font-semibold text-[#8E4455] text-right min-w-[75px]">
                             ${service.precio.toLocaleString('es-AR')}
                           </span>
                         </div>
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

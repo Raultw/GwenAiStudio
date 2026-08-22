@@ -24,16 +24,23 @@ import {
   FileText,
   Sparkles,
   RefreshCw,
-  Users
+  Users,
+  Mail,
+  RotateCcw,
+  CalendarCheck
 } from 'lucide-react';
 import type { 
   Appointment, 
   Service, 
   StudioConfig, 
   DashboardStats, 
-  AppointmentStatus 
+  AppointmentStatus,
+  TimeSlot,
+  DayAvailability,
+  Client
 } from '../types.js';
 import { ClientManagementAdmin } from './ClientManagementAdmin.js';
+import { AppointmentDetailModal } from './AppointmentDetailModal.js';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -74,6 +81,14 @@ const SERVICE_FEATURE_PRESETS = [
   'Efecto cat eye magnético y destellos multicapa'
 ];
 
+const getTodayDateString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const AdminModal: React.FC<AdminModalProps> = ({
   isOpen,
   onClose,
@@ -85,6 +100,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const [activeTab, setActiveTab] = useState<'agenda' | 'clientes' | 'nuevo' | 'bloqueos' | 'servicios' | 'horarios' | 'stats'>('agenda');
   const [clientLookupForFicha, setClientLookupForFicha] = useState<{ id?: string; telefono?: string; nombre?: string; apellido?: string } | null>(null);
+  const [selectedAppointmentForDetail, setSelectedAppointmentForDetail] = useState<Appointment | null>(null);
 
   const handleOpenClientFicha = (apt: Appointment) => {
     setClientLookupForFicha({
@@ -96,6 +112,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setActiveTab('clientes');
   };
 
+  const handleOpenClientFichaFromDetail = (lookup: { id?: string; telefono?: string; nombre?: string; apellido?: string }) => {
+    setSelectedAppointmentForDetail(null);
+    setClientLookupForFicha(lookup);
+    setActiveTab('clientes');
+  };
+
   // Data states
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -104,10 +126,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [dbStatus, setDbStatus] = useState<{ postgresConnected: boolean; driver: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Filters for Agenda
+  // Filters for Agenda (default to current date and 'pendiente' status)
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<string>('todos');
-  const [dateFilter, setDateFilter] = useState<string>(''); // specific date
+  const [statusFilter, setStatusFilter] = useState<string>('pendiente');
+  const [dateFilter, setDateFilter] = useState<string>(getTodayDateString());
 
   // Notes editing state
   const [editingNotesId, setEditingNotesId] = useState<string | null>(null);
@@ -118,14 +140,41 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     nombre: '',
     apellido: '',
     telefono: '',
+    email: '',
     servicioId: '',
-    fecha: '',
-    horaInicio: '10:00',
+    fecha: getTodayDateString(),
+    horaInicio: '',
     observaciones: '',
     notasAdmin: ''
   });
+  const [selectedManualClient, setSelectedManualClient] = useState<Client | null>(null);
+  const [manualAvailability, setManualAvailability] = useState<DayAvailability | null>(null);
+  const [isLoadingManualAvailability, setIsLoadingManualAvailability] = useState<boolean>(false);
+  const [manualAvailabilityError, setManualAvailabilityError] = useState<string | null>(null);
+  const [customTimeInput, setCustomTimeInput] = useState<boolean>(false);
+  const [clientSearchTerm, setClientSearchTerm] = useState<string>('');
+  const [clientsSearchResults, setClientsSearchResults] = useState<Client[]>([]);
+  const [isSearchingClients, setIsSearchingClients] = useState<boolean>(false);
   const [manualSuccess, setManualSuccess] = useState<string | null>(null);
   const [manualError, setManualError] = useState<string | null>(null);
+
+  // In-UI Action confirmation states (replaces iframe-blocked window.confirm)
+  const [appointmentToDelete, setAppointmentToDelete] = useState<Appointment | null>(null);
+  const [appointmentToRevert, setAppointmentToRevert] = useState<{
+    apt: Appointment;
+    id: string;
+    nombre: string;
+    apellido: string;
+    codigo: string;
+    newStatus: AppointmentStatus;
+    isReactivating?: boolean;
+  } | null>(null);
+  const [adminToast, setAdminToast] = useState<{ message: string; type?: 'success' | 'error' | 'info' } | null>(null);
+
+  const showAdminToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    setAdminToast({ message, type });
+    setTimeout(() => setAdminToast(null), 4000);
+  };
 
   // Block date & time range form state
   const [blockType, setBlockType] = useState<'rango_horario' | 'dia_completo'>('rango_horario');
@@ -220,6 +269,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   };
 
   useEffect(() => {
+    if (isOpen) {
+      setStatusFilter('pendiente');
+      setDateFilter(getTodayDateString());
+      setSearchQuery('');
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
     if (isOpen && isAuthenticated) {
       loadAdminData();
     }
@@ -228,18 +285,27 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   // Change Appointment Status
   const handleUpdateStatus = async (id: string, newStatus: AppointmentStatus) => {
     try {
-      const res = await fetch(`/api/turnos/${id}`, {
+      const cleanId = (id || '').trim();
+      const res = await fetch(`/api/turnos/${encodeURIComponent(cleanId)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ estado: newStatus })
       });
       if (res.ok) {
         const updated = await res.json();
-        setAppointments(prev => prev.map(a => a.id === id ? updated : a));
-        loadAdminData();
+        setAppointments(prev => prev.map(a => (a.id === cleanId || a.codigo === cleanId) ? updated : a));
+        setSelectedAppointmentForDetail(prev => (prev && (prev.id === cleanId || prev.codigo === cleanId)) ? updated : prev);
+        showAdminToast(`Estado del turno actualizado a: ${newStatus.toUpperCase()}`);
+        await loadAdminData();
+        onRefreshPublicData();
+        return updated;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        showAdminToast(errData.error || 'No se pudo actualizar el estado del turno.', 'error');
       }
     } catch (err) {
       console.error('Error updating status:', err);
+      showAdminToast('Error de conexión al actualizar el estado.', 'error');
     }
   };
 
@@ -254,6 +320,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       if (res.ok) {
         const updated = await res.json();
         setAppointments(prev => prev.map(a => a.id === id ? updated : a));
+        setSelectedAppointmentForDetail(prev => prev && prev.id === id ? { ...prev, notasAdmin: tempNotes } : prev);
         setEditingNotesId(null);
       }
     } catch (err) {
@@ -261,18 +328,170 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
   };
 
-  // Delete Appointment
-  const handleDeleteAppointment = async (id: string) => {
-    if (!window.confirm('¿Segura que deseás eliminar este turno del sistema?')) return;
+  const handleSaveNotesDirect = async (id: string, notes: string) => {
     try {
-      const res = await fetch(`/api/turnos/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/turnos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notasAdmin: notes })
+      });
       if (res.ok) {
-        setAppointments(prev => prev.filter(a => a.id !== id));
-        loadAdminData();
+        const updated = await res.json();
+        setAppointments(prev => prev.map(a => a.id === id ? updated : a));
+        setSelectedAppointmentForDetail(prev => prev && prev.id === id ? { ...prev, notasAdmin: notes } : prev);
+      }
+    } catch (err) {
+      console.error('Error saving notes directly:', err);
+    }
+  };
+
+  // Client quick search for manual booking
+  useEffect(() => {
+    if (!clientSearchTerm || clientSearchTerm.trim().length < 2) {
+      setClientsSearchResults([]);
+      setIsSearchingClients(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearchingClients(true);
+      try {
+        const res = await fetch(`/api/clientes?search=${encodeURIComponent(clientSearchTerm.trim())}`);
+        if (res.ok) {
+          const list: Client[] = await res.json();
+          setClientsSearchResults(Array.isArray(list) ? list.slice(0, 5) : []);
+        }
+      } catch (err) {
+        console.error('Error searching clients for manual booking:', err);
+      } finally {
+        setIsSearchingClients(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [clientSearchTerm]);
+
+  // Real-time availability check for manual booking (identical to client booking logic)
+  useEffect(() => {
+    if (activeTab !== 'nuevo' || !manualForm.fecha || !manualForm.servicioId) {
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingManualAvailability(true);
+    setManualAvailabilityError(null);
+
+    const fetchAvailability = async () => {
+      try {
+        const res = await fetch(`/api/availability?date=${encodeURIComponent(manualForm.fecha)}&service_id=${encodeURIComponent(manualForm.servicioId)}`);
+        if (!res.ok) {
+          throw new Error('No se pudo verificar la disponibilidad para esta fecha.');
+        }
+        const data: DayAvailability = await res.json();
+        if (isMounted) {
+          setManualAvailability(data);
+          // If a slot was already chosen and is not valid in the new query, auto-adjust to first available
+          if (!customTimeInput) {
+            if (manualForm.horaInicio) {
+              const slotAvailable = data.slots.some(s => s.hora === manualForm.horaInicio && s.disponible);
+              if (!slotAvailable) {
+                const firstFree = data.slots.find(s => s.disponible);
+                setManualForm(prev => ({ ...prev, horaInicio: firstFree ? firstFree.hora : '' }));
+              }
+            } else {
+              const firstFree = data.slots.find(s => s.disponible);
+              if (firstFree) {
+                setManualForm(prev => ({ ...prev, horaInicio: firstFree.hora }));
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          setManualAvailabilityError(err.message || 'Error al consultar disponibilidad.');
+          setManualAvailability(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingManualAvailability(false);
+        }
+      }
+    };
+
+    fetchAvailability();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeTab, manualForm.fecha, manualForm.servicioId, customTimeInput]);
+
+  // Calculated End Time for manual booking
+  const calculatedManualEndTime = useMemo(() => {
+    if (!manualForm.horaInicio || !manualForm.servicioId) return '';
+    const srv = services.find(s => s.id === manualForm.servicioId);
+    if (!srv) return '';
+    const [h, m] = manualForm.horaInicio.split(':').map(Number);
+    if (isNaN(h) || isNaN(m)) return '';
+    const totalMinutes = h * 60 + m + srv.duracionMinutos;
+    const endH = Math.floor(totalMinutes / 60);
+    const endM = totalMinutes % 60;
+    return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+  }, [manualForm.horaInicio, manualForm.servicioId, services]);
+
+  // Delete Appointment (definitively removes record from database and memory)
+  const executeDeleteAppointment = async (apt: Appointment) => {
+    try {
+      const cleanId = (apt.id || apt.codigo || '').trim();
+      const res = await fetch(`/api/turnos/${encodeURIComponent(cleanId)}`, { method: 'DELETE' });
+      if (res.ok) {
+        setAppointments(prev => prev.filter(a => a.id !== apt.id && a.codigo !== apt.codigo));
+        if (selectedAppointmentForDetail?.id === apt.id || selectedAppointmentForDetail?.codigo === apt.codigo) {
+          setSelectedAppointmentForDetail(null);
+        }
+        setAppointmentToDelete(null);
+        showAdminToast(`El registro del turno (${apt.codigo}) fue eliminado definitivamente.`);
+        await loadAdminData();
+        onRefreshPublicData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAdminToast(data.error || 'No se pudo eliminar el turno del servidor.', 'error');
       }
     } catch (err) {
       console.error('Error deleting appointment:', err);
+      showAdminToast('Error de conexión al intentar eliminar el turno.', 'error');
     }
+  };
+
+  const executeRevertStatus = async (apt: Appointment, newStatus: AppointmentStatus) => {
+    try {
+      const cleanId = (apt.id || apt.codigo || '').trim();
+      const res = await fetch(`/api/turnos/${encodeURIComponent(cleanId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: newStatus })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setAppointments(prev => prev.map(a => (a.id === cleanId || a.codigo === cleanId) ? updated : a));
+        if (selectedAppointmentForDetail?.id === cleanId || selectedAppointmentForDetail?.codigo === cleanId) {
+          setSelectedAppointmentForDetail(updated);
+        }
+        setAppointmentToRevert(null);
+        showAdminToast(`El turno de ${apt.nombre} ${apt.apellido} (${apt.codigo}) fue pasado a PENDIENTE.`);
+        await loadAdminData();
+        onRefreshPublicData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAdminToast(data.error || 'No se pudo actualizar el estado del turno.', 'error');
+      }
+    } catch (err) {
+      console.error('Error updating appointment status:', err);
+      showAdminToast('Error de conexión al actualizar el estado.', 'error');
+    }
+  };
+
+  const handleDeleteAppointment = (apt: Appointment) => {
+    setAppointmentToDelete(apt);
   };
 
   // Create Manual Appointment
@@ -281,8 +500,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     setManualError(null);
     setManualSuccess(null);
 
-    if (!manualForm.nombre || !manualForm.telefono || !manualForm.servicioId || !manualForm.fecha) {
-      setManualError('Por favor completá los campos obligatorios.');
+    if (!manualForm.nombre.trim() || !manualForm.telefono.trim() || !manualForm.servicioId || !manualForm.fecha || !manualForm.horaInicio) {
+      setManualError('Por favor completá los campos obligatorios: Nombre, Teléfono, Servicio, Fecha y Hora.');
       return;
     }
 
@@ -291,13 +510,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          nombre: manualForm.nombre,
-          apellido: manualForm.apellido || 'Cliente',
-          telefono: manualForm.telefono,
+          nombre: manualForm.nombre.trim(),
+          apellido: manualForm.apellido.trim() || 'Cliente',
+          telefono: manualForm.telefono.trim(),
+          email: manualForm.email.trim() || undefined,
           servicio_id: manualForm.servicioId,
           fecha: manualForm.fecha,
           hora_inicio: manualForm.horaInicio,
-          observaciones: manualForm.observaciones
+          observaciones: manualForm.observaciones.trim() || undefined
         })
       });
 
@@ -307,14 +527,26 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         return;
       }
 
-      setManualSuccess(`¡Turno creado con éxito! Código: ${data.turno.codigo}`);
+      // If internal admin notes were supplied, save them directly
+      if (manualForm.notasAdmin.trim() && data.turno?.id) {
+        await fetch(`/api/turnos/${data.turno.id}/notas`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ notasAdmin: manualForm.notasAdmin.trim() })
+        }).catch(err => console.error('Error saving admin notes on manual creation:', err));
+      }
+
+      setManualSuccess(`¡Turno creado con éxito! Código asignado: ${data.turno?.codigo || ''}`);
+      setSelectedManualClient(null);
+      setClientSearchTerm('');
       setManualForm({
         nombre: '',
         apellido: '',
         telefono: '',
+        email: '',
         servicioId: '',
-        fecha: '',
-        horaInicio: '10:00',
+        fecha: getTodayDateString(),
+        horaInicio: '',
         observaciones: '',
         notasAdmin: ''
       });
@@ -734,8 +966,14 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                       ...prev,
                       nombre: client.nombre,
                       apellido: client.apellido,
-                      telefono: client.telefono
+                      telefono: client.telefono,
+                      email: client.email || '',
+                      observaciones: '',
+                      notasAdmin: ''
                     }));
+                    setSelectedManualClient(client);
+                    setManualError(null);
+                    setManualSuccess(null);
                     setActiveTab('nuevo');
                   }}
                 />
@@ -761,7 +999,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
                     {/* Status filter pills */}
                     <div className="flex items-center gap-1">
-                      {['todos', 'confirmado', 'pendiente', 'completado', 'cancelado'].map(st => (
+                      {['todos', 'pendiente', 'completado', 'cancelado'].map(st => (
                         <button
                           key={st}
                           onClick={() => setStatusFilter(st)}
@@ -809,16 +1047,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         const isEditingThisNote = editingNotesId === apt.id;
 
                         const statusBadge = {
-                          confirmado: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                          pendiente: 'bg-amber-50 text-amber-700 border-amber-200',
-                          completado: 'bg-blue-50 text-blue-700 border-blue-200',
-                          cancelado: 'bg-rose-50 text-rose-700 border-rose-200 line-through opacity-70'
-                        }[apt.estado];
+                          pendiente: 'bg-amber-50 text-amber-800 border-amber-300',
+                          completado: 'bg-blue-50 text-blue-800 border-blue-300',
+                          cancelado: 'bg-rose-50 text-rose-800 border-rose-300 line-through opacity-70'
+                        }[apt.estado] || 'bg-stone-50 text-stone-800 border-stone-300';
 
                         return (
                           <div
                             key={apt.id}
-                            className="bg-white rounded-2xl p-5 border border-[#E8DCD5] shadow-xs flex flex-col justify-between"
+                            className="bg-white rounded-2xl p-5 border border-[#E8DCD5] shadow-xs flex flex-col justify-between hover:border-[#8E4455]/40 transition-all cursor-default"
                           >
                             <div>
                               {/* Header Card */}
@@ -827,13 +1064,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
-                                      onClick={() => handleOpenClientFicha(apt)}
+                                      onClick={() => setSelectedAppointmentForDetail(apt)}
                                       className="font-bold text-[#241E1A] text-base hover:text-[#8E4455] transition-colors cursor-pointer text-left flex items-center gap-1.5 group"
-                                      title="Ver ficha completa de clienta (historial, alertas, preferencias y tips)"
+                                      title="Abrir detalle del turno"
                                     >
                                       <span>{apt.nombre} {apt.apellido}</span>
-                                      <span className="text-[10px] text-[#8E4455] bg-rose-50 border border-rose-200/60 px-1.5 py-0.2 rounded-md font-medium opacity-80 group-hover:opacity-100 group-hover:bg-rose-100 transition-all">
-                                        Ficha ↗
+                                      <span className="text-[10px] text-[#8E4455] bg-rose-50 border border-rose-200/60 px-1.5 py-0.5 rounded-md font-medium opacity-80 group-hover:opacity-100 group-hover:bg-rose-100 transition-all">
+                                        Detalle ↗
                                       </span>
                                     </button>
                                     <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${statusBadge}`}>
@@ -852,11 +1089,61 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                 </div>
                               </div>
 
-                              {/* Service & Time Info */}
-                              <div className="bg-[#FAF7F2] p-3 rounded-xl border border-[#E8DCD5] mb-3 space-y-1.5 text-xs">
+                              {/* Client Info & Quick Actions (Name, Phone, Email + Ficha & WhatsApp) */}
+                              <div className="bg-[#FAF7F2]/80 p-3 rounded-xl border border-[#E8DCD5]/80 mb-3 space-y-2">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                                    <span className="text-[#5A4B43] flex items-center gap-1">
+                                      <Phone className="w-3.5 h-3.5 text-[#8C7A70] shrink-0" />
+                                      <a 
+                                        href={getWhatsAppChatUrl(apt)} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="font-mono hover:text-[#8E4455] transition-colors"
+                                        title="Abrir chat de WhatsApp"
+                                      >
+                                        {apt.telefono}
+                                      </a>
+                                    </span>
+                                    <span className="text-[#5A4B43] flex items-center gap-1 max-w-[220px] truncate" title={apt.email || 'Sin mail registrado'}>
+                                      <Mail className="w-3.5 h-3.5 text-[#8C7A70] shrink-0" />
+                                      <span className="truncate">{apt.email || 'Sin email'}</span>
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenClientFicha(apt)}
+                                      className="inline-flex items-center gap-1 text-[11px] font-medium text-[#8E4455] bg-white px-2.5 py-1 rounded-full border border-rose-200 hover:bg-rose-50 transition-colors cursor-pointer shadow-2xs"
+                                      title="Ver ficha de clienta"
+                                    >
+                                      <User className="w-3 h-3" />
+                                      <span>Ficha</span>
+                                    </button>
+                                    <a
+                                      href={getWhatsAppChatUrl(apt)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-white px-2.5 py-1 rounded-full border border-emerald-200 hover:bg-emerald-50 transition-colors shadow-2xs"
+                                      title="Enviar mensaje por WhatsApp"
+                                    >
+                                      <MessageCircle className="w-3 h-3 fill-current" />
+                                      <span>WhatsApp</span>
+                                    </a>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Service & Time Info + Client Notes - Clickable for details */}
+                              <div 
+                                onClick={() => setSelectedAppointmentForDetail(apt)}
+                                className="bg-[#FAF7F2] p-3 rounded-xl border border-[#E8DCD5] mb-3 space-y-2 text-xs hover:bg-[#F5EDE6] transition-colors cursor-pointer"
+                                title="Click para ver detalle completo"
+                              >
                                 <div className="flex items-center justify-between text-[#241E1A]">
-                                  <span className="font-medium">💅 {apt.servicioNombre}</span>
-                                  <span className="text-[#7A6B62]">{apt.duracionMinutos} min</span>
+                                  <span className="font-semibold text-sm text-[#8E4455]">💅 {apt.servicioNombre}</span>
+                                  <span className="text-[#7A6B62] text-[11px] font-medium bg-white px-2 py-0.5 rounded-md border border-[#E8DCD5]">{apt.duracionMinutos} min</span>
                                 </div>
                                 <div className="flex items-center justify-between text-[#5A4B43]">
                                   <span className="flex items-center gap-1 font-semibold text-[#8E4455]">
@@ -868,31 +1155,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                     {apt.horaInicio} - {apt.horaFin} hs
                                   </span>
                                 </div>
-                              </div>
 
-                              {/* Contact row */}
-                              <div className="flex items-center justify-between mb-3 text-xs">
-                                <span className="text-[#5A4B43] flex items-center gap-1">
-                                  <Phone className="w-3.5 h-3.5 text-[#8C7A70]" />
-                                  {apt.telefono}
-                                </span>
-                                <a
-                                  href={getWhatsAppChatUrl(apt)}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                                >
-                                  <MessageCircle className="w-3 h-3 fill-current" />
-                                  <span>WhatsApp</span>
-                                </a>
+                                {/* Observations / Client Note */}
+                                {apt.observaciones && apt.observaciones.trim().length > 0 && (
+                                  <div className="pt-2 border-t border-[#E8DCD5]/80 text-[11px] text-[#5A4B43]">
+                                    <span className="font-semibold text-[#8E4455]">Nota de la clienta: </span>
+                                    <span className="italic text-[#6E5D55]">"{apt.observaciones}"</span>
+                                  </div>
+                                )}
                               </div>
-
-                              {/* Observations from client */}
-                              {apt.observaciones && (
-                                <p className="text-[11px] text-[#6E5D55] bg-white p-2 rounded-lg border border-[#E8DCD5] mb-3 italic">
-                                  "{apt.observaciones}"
-                                </p>
-                              )}
 
                               {/* Internal Admin Notes */}
                               <div className="mb-3">
@@ -922,7 +1193,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                   </div>
                                 ) : (
                                   <div className="flex items-center justify-between text-[11px] text-[#8C7A70] bg-[#FAF7F2]/50 p-2 rounded-lg">
-                                    <span>
+                                    <span className="truncate mr-2">
                                       📝 {apt.notasAdmin ? apt.notasAdmin : 'Sin notas internas'}
                                     </span>
                                     <button
@@ -930,7 +1201,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                                         setEditingNotesId(apt.id);
                                         setTempNotes(apt.notasAdmin || '');
                                       }}
-                                      className="text-[#8E4455] hover:underline shrink-0 ml-2"
+                                      className="text-[#8E4455] hover:underline shrink-0 text-[10px] font-medium cursor-pointer"
                                     >
                                       Editar
                                     </button>
@@ -940,41 +1211,102 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                             </div>
 
                             {/* Actions bar */}
-                            <div className="pt-3 border-t border-[#F0E6DE] flex items-center justify-between gap-1 text-xs">
-                              <div className="flex items-center gap-1">
-                                {apt.estado !== 'confirmado' && (
+                            <div className="pt-3 border-t border-[#F0E6DE] flex flex-col gap-2">
+                              <div className="flex items-center justify-between gap-1 text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  {apt.estado === 'pendiente' ? (
+                                    <>
+                                      <button
+                                        onClick={() => handleUpdateStatus(apt.id, 'completado')}
+                                        className="px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 font-medium hover:bg-blue-200 text-[11px] transition-colors cursor-pointer"
+                                        title="Marcar turno como completado"
+                                      >
+                                        Completar
+                                      </button>
+                                      <button
+                                        onClick={() => handleUpdateStatus(apt.id, 'cancelado')}
+                                        className="px-2.5 py-1 rounded-lg bg-rose-100 text-rose-800 font-medium hover:bg-rose-200 text-[11px] transition-colors cursor-pointer"
+                                        title="Cancelar este turno"
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        onClick={() => setSelectedAppointmentForDetail(apt)}
+                                        className="px-2 py-1 rounded-lg bg-[#FAF7F2] text-[#5A4B43] border border-[#E8DCD5] hover:bg-[#E8DCD5] font-medium text-[11px] transition-colors cursor-pointer"
+                                      >
+                                        Detalle
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={() => setSelectedAppointmentForDetail(apt)}
+                                      className="px-2.5 py-1 rounded-lg bg-[#FAF7F2] text-[#5A4B43] border border-[#E8DCD5] hover:bg-[#E8DCD5] font-medium text-[11px] transition-colors cursor-pointer"
+                                    >
+                                      Ver detalle
+                                    </button>
+                                  )}
+                                </div>
+
+                                {apt.estado !== 'pendiente' && (
                                   <button
-                                    onClick={() => handleUpdateStatus(apt.id, 'confirmado')}
-                                    className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-medium hover:bg-emerald-200 text-[11px]"
+                                    type="button"
+                                    onClick={() => setAppointmentToDelete(apt)}
+                                    className="p-1.5 text-[#C4B0A3] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Eliminar registro definitivamente"
                                   >
-                                    Confirmar
-                                  </button>
-                                )}
-                                {apt.estado !== 'completado' && (
-                                  <button
-                                    onClick={() => handleUpdateStatus(apt.id, 'completado')}
-                                    className="px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 font-medium hover:bg-blue-200 text-[11px]"
-                                  >
-                                    Completar
-                                  </button>
-                                )}
-                                {apt.estado !== 'cancelado' && (
-                                  <button
-                                    onClick={() => handleUpdateStatus(apt.id, 'cancelado')}
-                                    className="px-2.5 py-1 rounded-lg bg-rose-100 text-rose-800 font-medium hover:bg-rose-200 text-[11px]"
-                                  >
-                                    Cancelar
+                                    <Trash2 className="w-4 h-4" />
                                   </button>
                                 )}
                               </div>
 
-                              <button
-                                onClick={() => handleDeleteAppointment(apt.id)}
-                                className="p-1.5 text-[#C4B0A3] hover:text-rose-600 rounded-lg transition-colors"
-                                title="Eliminar registro"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {/* Revert status action for completed or cancelled appointments */}
+                              {apt.estado === 'completado' && (
+                                <div className="flex items-center justify-start pt-1 border-t border-dashed border-[#F0E6DE]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAppointmentToRevert({
+                                        apt,
+                                        id: apt.id,
+                                        nombre: apt.nombre,
+                                        apellido: apt.apellido,
+                                        codigo: apt.codigo,
+                                        newStatus: 'pendiente',
+                                        isReactivating: false
+                                      });
+                                    }}
+                                    className="text-[11px] text-[#8E4455] hover:text-[#783645] hover:underline font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Volver a pasar este turno a estado pendiente"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>Volver a pasar a pendiente</span>
+                                  </button>
+                                </div>
+                              )}
+
+                              {apt.estado === 'cancelado' && (
+                                <div className="flex items-center justify-start pt-1 border-t border-dashed border-[#F0E6DE]">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAppointmentToRevert({
+                                        apt,
+                                        id: apt.id,
+                                        nombre: apt.nombre,
+                                        apellido: apt.apellido,
+                                        codigo: apt.codigo,
+                                        newStatus: 'pendiente',
+                                        isReactivating: true
+                                      });
+                                    }}
+                                    className="text-[11px] text-amber-800 hover:text-amber-900 hover:underline font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                                    title="Reactivar este turno a estado pendiente"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>Reactivar a pendiente</span>
+                                  </button>
+                                </div>
+                              )}
                             </div>
                           </div>
                         );
@@ -986,117 +1318,379 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
               {/* TAB 2: NUEVO TURNO MANUAL */}
               {activeTab === 'nuevo' && (
-                <div className="max-w-2xl mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-[#E8DCD5] shadow-xs">
-                  <h4 className="font-serif text-2xl font-medium text-[#241E1A] mb-1">
-                    Cargar Turno Manualmente
-                  </h4>
-                  <p className="text-xs text-[#7A6B62] mb-6">
-                    Útil para agendar clientas que llaman por teléfono o acuden personalmente al estudio.
-                  </p>
-
-                  <form onSubmit={handleCreateManual} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">Nombre *</label>
-                        <input
-                          type="text"
-                          required
-                          value={manualForm.nombre}
-                          onChange={(e) => setManualForm({ ...manualForm, nombre: e.target.value })}
-                          placeholder="Nombre"
-                          className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                        />
+                <div className="max-w-3xl mx-auto space-y-6">
+                  <div className="bg-white p-6 sm:p-8 rounded-3xl border border-[#E8DCD5] shadow-xs">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 rounded-2xl bg-[#FAF7F2] border border-[#E8DCD5] flex items-center justify-center text-[#8E4455]">
+                        <Plus className="w-5 h-5" />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">Apellido</label>
-                        <input
-                          type="text"
-                          value={manualForm.apellido}
-                          onChange={(e) => setManualForm({ ...manualForm, apellido: e.target.value })}
-                          placeholder="Apellido"
-                          className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                        />
+                        <h4 className="font-serif text-2xl font-medium text-[#241E1A]">
+                          Cargar Turno Manualmente
+                        </h4>
+                        <p className="text-xs text-[#7A6B62]">
+                          Agendá turnos para clientas presenciales o telefónicas verificando la disponibilidad real de horarios en el estudio.
+                        </p>
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">Teléfono / WhatsApp *</label>
-                        <input
-                          type="tel"
-                          required
-                          value={manualForm.telefono}
-                          onChange={(e) => setManualForm({ ...manualForm, telefono: e.target.value })}
-                          placeholder="11-4521-8899"
-                          className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">Servicio *</label>
-                        <select
-                          required
-                          value={manualForm.servicioId}
-                          onChange={(e) => setManualForm({ ...manualForm, servicioId: e.target.value })}
-                          className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                        >
-                          <option value="">Seleccionar Servicio</option>
-                          {services.map(s => (
-                            <option key={s.id} value={s.id}>
-                              {s.nombre} ({s.duracionMinutos} min - ${s.precio.toLocaleString('es-AR')})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
+                    <form onSubmit={handleCreateManual} className="mt-6 space-y-6">
+                      {/* Section 1: Client Selection */}
+                      <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E8DCD5] space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h5 className="font-serif font-bold text-sm text-[#241E1A] flex items-center gap-1.5">
+                            <User className="w-4 h-4 text-[#8E4455]" />
+                            <span>1. Datos de la Clienta</span>
+                          </h5>
+                          {selectedManualClient && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedManualClient(null);
+                                setManualForm(prev => ({ ...prev, nombre: '', apellido: '', telefono: '', email: '' }));
+                              }}
+                              className="text-xs text-[#8E4455] hover:underline font-medium cursor-pointer"
+                            >
+                              Cambiar clienta
+                            </button>
+                          )}
+                        </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">Fecha *</label>
-                        <input
-                          type="date"
-                          required
-                          value={manualForm.fecha}
-                          onChange={(e) => setManualForm({ ...manualForm, fecha: e.target.value })}
-                          className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                        />
+                        {/* Search existing clients */}
+                        {!selectedManualClient && (
+                          <div className="relative">
+                            <Search className="w-4 h-4 text-[#8C7A70] absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              value={clientSearchTerm}
+                              onChange={(e) => setClientSearchTerm(e.target.value)}
+                              placeholder="Buscar clienta existente (nombre, teléfono o email)..."
+                              className="w-full pl-9 pr-3 py-2 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                            {isSearchingClients && (
+                              <RefreshCw className="w-3.5 h-3.5 text-[#8E4455] animate-spin absolute right-3 top-1/2 -translate-y-1/2" />
+                            )}
+
+                            {/* Client search results dropdown */}
+                            {clientsSearchResults.length > 0 && (
+                              <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl border border-[#E8DCD5] shadow-lg z-20 overflow-hidden divide-y divide-[#F0E6DE]">
+                                {clientsSearchResults.map(c => (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedManualClient(c);
+                                      setManualForm(prev => ({
+                                        ...prev,
+                                        nombre: c.nombre,
+                                        apellido: c.apellido,
+                                        telefono: c.telefono,
+                                        email: c.email || ''
+                                      }));
+                                      setClientSearchTerm('');
+                                      setClientsSearchResults([]);
+                                    }}
+                                    className="w-full text-left p-3 hover:bg-[#FAF7F2] flex items-center justify-between text-xs transition-colors cursor-pointer"
+                                  >
+                                    <div>
+                                      <p className="font-bold text-[#241E1A]">{c.nombre} {c.apellido}</p>
+                                      <p className="text-[11px] text-[#7A6B62] flex items-center gap-2">
+                                        <span>📱 {c.telefono}</span>
+                                        {c.email && <span>✉️ {c.email}</span>}
+                                      </p>
+                                    </div>
+                                    <span className="text-[10px] font-semibold text-[#8E4455] bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                                      Seleccionar
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Client details fields */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                          <div>
+                            <label className="block text-[11px] font-medium text-[#4A3E39] mb-1">Nombre *</label>
+                            <input
+                              type="text"
+                              required
+                              value={manualForm.nombre}
+                              onChange={(e) => setManualForm({ ...manualForm, nombre: e.target.value })}
+                              placeholder="Nombre de la clienta"
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-[#4A3E39] mb-1">Apellido</label>
+                            <input
+                              type="text"
+                              value={manualForm.apellido}
+                              onChange={(e) => setManualForm({ ...manualForm, apellido: e.target.value })}
+                              placeholder="Apellido"
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-medium text-[#4A3E39] mb-1">Teléfono / WhatsApp *</label>
+                            <input
+                              type="tel"
+                              required
+                              value={manualForm.telefono}
+                              onChange={(e) => setManualForm({ ...manualForm, telefono: e.target.value })}
+                              placeholder="Ej: 11-4521-8899"
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-medium text-[#4A3E39] mb-1">Email</label>
+                            <input
+                              type="email"
+                              value={manualForm.email}
+                              onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })}
+                              placeholder="clienta@ejemplo.com"
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-xs font-medium text-[#4A3E39] mb-1">Hora Inicio *</label>
-                        <input
-                          type="time"
-                          required
-                          value={manualForm.horaInicio}
-                          onChange={(e) => setManualForm({ ...manualForm, horaInicio: e.target.value })}
-                          className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                        />
+
+                      {/* Section 2: Service & Date */}
+                      <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E8DCD5] space-y-4">
+                        <h5 className="font-serif font-bold text-sm text-[#241E1A] flex items-center gap-1.5">
+                          <Sparkles className="w-4 h-4 text-[#8E4455]" />
+                          <span>2. Servicio y Fecha</span>
+                        </h5>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-[11px] font-medium text-[#4A3E39] mb-1">Servicio Solicitado *</label>
+                            <select
+                              required
+                              value={manualForm.servicioId}
+                              onChange={(e) => setManualForm({ ...manualForm, servicioId: e.target.value })}
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            >
+                              <option value="">Seleccionar Servicio...</option>
+                              {services.filter(s => s.activo !== false).map(s => (
+                                <option key={s.id} value={s.id}>
+                                  {s.nombre} ({s.duracionMinutos} min - ${s.precio.toLocaleString('es-AR')})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-[#4A3E39] mb-1">Fecha del Turno *</label>
+                            <input
+                              type="date"
+                              required
+                              value={manualForm.fecha}
+                              onChange={(e) => setManualForm({ ...manualForm, fecha: e.target.value })}
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                            {/* Date shortcuts */}
+                            <div className="flex gap-2 mt-1.5 text-[10px]">
+                              <button
+                                type="button"
+                                onClick={() => setManualForm(prev => ({ ...prev, fecha: getTodayDateString() }))}
+                                className="text-[#8E4455] hover:underline font-medium"
+                              >
+                                Hoy
+                              </button>
+                              <span className="text-[#D9C9BF]">·</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const tomorrow = new Date();
+                                  tomorrow.setDate(tomorrow.getDate() + 1);
+                                  setManualForm(prev => ({ ...prev, fecha: tomorrow.toISOString().split('T')[0] }));
+                                }}
+                                className="text-[#8E4455] hover:underline font-medium"
+                              >
+                                Mañana
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
 
-                    <div>
-                      <label className="block text-xs font-medium text-[#4A3E39] mb-1">Observaciones / Detalles</label>
-                      <input
-                        type="text"
-                        value={manualForm.observaciones}
-                        onChange={(e) => setManualForm({ ...manualForm, observaciones: e.target.value })}
-                        placeholder="Ej: Viene por primera vez, retiro previo..."
-                        className="w-full p-2.5 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A]"
-                      />
-                    </div>
+                      {/* Section 3: Availability & Slot Selection */}
+                      <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E8DCD5] space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h5 className="font-serif font-bold text-sm text-[#241E1A] flex items-center gap-1.5">
+                            <Clock className="w-4 h-4 text-[#8E4455]" />
+                            <span>3. Horario Disponible (En tiempo real)</span>
+                          </h5>
+                          <button
+                            type="button"
+                            onClick={() => setCustomTimeInput(!customTimeInput)}
+                            className="text-[11px] text-[#8E4455] hover:underline font-medium cursor-pointer"
+                          >
+                            {customTimeInput ? 'Ver selector de turnos' : 'Ingresar horario libre manual'}
+                          </button>
+                        </div>
 
-                    {manualError && (
-                      <p className="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-lg border border-rose-200">{manualError}</p>
-                    )}
-                    {manualSuccess && (
-                      <p className="text-xs text-emerald-700 bg-emerald-50 p-2.5 rounded-lg border border-emerald-200">{manualSuccess}</p>
-                    )}
+                        {/* Availability Status / Messages */}
+                        {!manualForm.servicioId || !manualForm.fecha ? (
+                          <div className="p-4 bg-white rounded-xl border border-[#E8DCD5] text-center text-xs text-[#7A6B62]">
+                            Seleccioná un servicio y una fecha para calcular los horarios disponibles en tiempo real.
+                          </div>
+                        ) : isLoadingManualAvailability ? (
+                          <div className="p-6 bg-white rounded-xl border border-[#E8DCD5] text-center text-xs text-[#7A6B62] flex items-center justify-center gap-2">
+                            <RefreshCw className="w-4 h-4 text-[#8E4455] animate-spin" />
+                            <span>Verificando disponibilidad en tiempo real...</span>
+                          </div>
+                        ) : manualAvailabilityError ? (
+                          <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900">
+                            {manualAvailabilityError}
+                          </div>
+                        ) : manualAvailability && !manualAvailability.abierto ? (
+                          <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-xs text-rose-800">
+                            🔒 {manualAvailability.motivo || 'El estudio se encuentra cerrado en esta fecha.'}
+                          </div>
+                        ) : customTimeInput ? (
+                          <div className="space-y-2">
+                            <label className="block text-[11px] font-medium text-[#4A3E39]">Hora de inicio manual (HH:MM)</label>
+                            <input
+                              type="time"
+                              required
+                              value={manualForm.horaInicio}
+                              onChange={(e) => setManualForm({ ...manualForm, horaInicio: e.target.value })}
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            {manualAvailability && (
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-[#7A6B62]">
+                                  {manualAvailability.slotsDisponiblesCount} horarios libres encontrados
+                                </span>
+                                {manualForm.horaInicio && (
+                                  <span className="font-semibold text-[#8E4455]">
+                                    Turno: {manualForm.horaInicio} - {calculatedManualEndTime} hs
+                                  </span>
+                                )}
+                              </div>
+                            )}
 
-                    <button
-                      type="submit"
-                      className="w-full py-3 rounded-xl bg-[#8E4455] text-white text-xs font-medium hover:bg-[#783645] transition-all cursor-pointer"
-                    >
-                      Guardar Turno en la Agenda
-                    </button>
-                  </form>
+                            {/* Slots Grid */}
+                            {manualAvailability && manualAvailability.slots.length > 0 ? (
+                              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                                {manualAvailability.slots.map((slot) => {
+                                  const isSelected = manualForm.horaInicio === slot.hora;
+                                  return (
+                                    <button
+                                      key={slot.hora}
+                                      type="button"
+                                      disabled={!slot.disponible}
+                                      onClick={() => setManualForm(prev => ({ ...prev, horaInicio: slot.hora }))}
+                                      title={slot.disponible ? `Seleccionar ${slot.hora} hs` : (slot.motivo || 'Horario no disponible')}
+                                      className={`py-2 px-1 rounded-xl text-xs font-mono font-medium transition-all text-center cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-[#8E4455] text-white shadow-xs scale-102 ring-2 ring-[#8E4455]/30'
+                                          : slot.disponible
+                                          ? 'bg-white text-[#241E1A] border border-[#D9C9BF] hover:border-[#8E4455] hover:bg-rose-50/50'
+                                          : 'bg-stone-100 text-[#A39288] border border-stone-200 line-through opacity-60 cursor-not-allowed'
+                                      }`}
+                                    >
+                                      {slot.hora}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-[#7A6B62] italic bg-white p-3 rounded-xl border border-[#E8DCD5]">
+                                No hay turnos configurados para esta fecha.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Section 4: Observations & Private Notes */}
+                      <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E8DCD5] space-y-3">
+                        <h5 className="font-serif font-bold text-sm text-[#241E1A] flex items-center gap-1.5">
+                          <FileText className="w-4 h-4 text-[#8E4455]" />
+                          <span>4. Observaciones y Notas</span>
+                        </h5>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[11px] font-medium text-[#4A3E39] mb-1">
+                              Observaciones de la Clienta
+                            </label>
+                            <input
+                              type="text"
+                              value={manualForm.observaciones}
+                              onChange={(e) => setManualForm({ ...manualForm, observaciones: e.target.value })}
+                              placeholder="Ej: Retiro previo, uñas cortas..."
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[11px] font-medium text-[#4A3E39] mb-1">
+                              Nota Interna del Estudio (Privada)
+                            </label>
+                            <input
+                              type="text"
+                              value={manualForm.notasAdmin}
+                              onChange={(e) => setManualForm({ ...manualForm, notasAdmin: e.target.value })}
+                              placeholder="Ej: Clienta referida por Camila..."
+                              className="w-full p-2.5 rounded-xl bg-white border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Error & Success feedback */}
+                      {manualError && (
+                        <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-xs text-rose-700 font-medium">
+                          {manualError}
+                        </div>
+                      )}
+                      {manualSuccess && (
+                        <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-800 space-y-2">
+                          <p className="font-bold flex items-center gap-1.5 text-emerald-900">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                            <span>{manualSuccess}</span>
+                          </p>
+                          <div className="flex gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab('agenda')}
+                              className="px-3 py-1 bg-emerald-700 text-white rounded-lg font-medium hover:bg-emerald-800 transition-colors text-[11px]"
+                            >
+                              Ver en la Agenda
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setManualSuccess(null)}
+                              className="px-3 py-1 bg-white text-emerald-800 border border-emerald-300 rounded-lg font-medium hover:bg-emerald-100 transition-colors text-[11px]"
+                            >
+                              Cargar otro turno
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Submit button */}
+                      <button
+                        type="submit"
+                        disabled={isLoadingManualAvailability}
+                        className="w-full py-3.5 rounded-2xl bg-[#8E4455] text-white text-sm font-semibold hover:bg-[#783645] transition-all cursor-pointer shadow-sm hover:shadow flex items-center justify-center gap-2"
+                      >
+                        <CalendarCheck className="w-4 h-4" />
+                        <span>Guardar Turno en la Agenda</span>
+                      </button>
+                    </form>
+                  </div>
                 </div>
               )}
 
@@ -1989,6 +2583,130 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               )}
 
             </div>
+          </div>
+        )}
+
+        {/* Modal de Detalle del Turno */}
+        <AppointmentDetailModal
+          isOpen={!!selectedAppointmentForDetail}
+          appointment={selectedAppointmentForDetail}
+          allAppointments={appointments}
+          onClose={() => setSelectedAppointmentForDetail(null)}
+          onUpdateStatus={handleUpdateStatus}
+          onSaveNotes={handleSaveNotesDirect}
+          onOpenClientFicha={handleOpenClientFichaFromDetail}
+        />
+
+        {/* Modal de Confirmación de Eliminación de Turno */}
+        {appointmentToDelete && (
+          <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#E8DCD5] shadow-2xl space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h4 className="font-serif text-lg font-bold text-[#241E1A]">
+                    ¿Eliminar registro definitivamente?
+                  </h4>
+                  <p className="text-xs text-[#7A6B62]">
+                    Código: <span className="font-mono font-bold text-[#241E1A]">{appointmentToDelete.codigo}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E8DCD5] text-xs text-[#5A4B43] space-y-1.5">
+                <p>
+                  Clienta: <strong className="text-[#241E1A]">{appointmentToDelete.nombre} {appointmentToDelete.apellido}</strong>
+                </p>
+                <p>
+                  Servicio: <strong>{appointmentToDelete.servicioNombre}</strong>
+                </p>
+                <p>
+                  Fecha y Hora: <strong>{appointmentToDelete.fecha} a las {appointmentToDelete.horaInicio} hs</strong>
+                </p>
+                <p className="text-rose-700 font-semibold pt-1">
+                  ⚠️ Esta acción borrará el registro de la base de datos de manera permanente e irreversible.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAppointmentToDelete(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-medium text-[#7A6B62] hover:text-[#241E1A] hover:bg-[#FAF7F2] transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => executeDeleteAppointment(appointmentToDelete)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Sí, eliminar registro</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal de Confirmación para Volver a Pendiente */}
+        {appointmentToRevert && (
+          <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-2xs flex items-center justify-center p-4 animate-fade-in">
+            <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-[#E8DCD5] shadow-2xl space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 flex items-center justify-center shrink-0">
+                  <RotateCcw className="w-5 h-5 text-[#8E4455]" />
+                </div>
+                <div>
+                  <h4 className="font-serif text-lg font-bold text-[#241E1A]">
+                    {appointmentToRevert.isReactivating ? '¿Reactivar turno cancelado?' : '¿Volver turno a estado pendiente?'}
+                  </h4>
+                  <p className="text-xs text-[#7A6B62]">
+                    Código: <span className="font-mono font-bold text-[#241E1A]">{appointmentToRevert.codigo}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E8DCD5] text-xs text-[#5A4B43] space-y-1.5">
+                <p>
+                  Clienta: <strong className="text-[#241E1A]">{appointmentToRevert.nombre} {appointmentToRevert.apellido}</strong>
+                </p>
+                <p>
+                  Estado actual: <strong className="capitalize">{appointmentToRevert.apt.estado}</strong>
+                </p>
+                <p className="text-[#8E4455] font-medium pt-1">
+                  ℹ️ El turno volverá a figurar como <strong>PENDIENTE DE ATENCIÓN</strong> en la agenda del estudio.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAppointmentToRevert(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-medium text-[#7A6B62] hover:text-[#241E1A] hover:bg-[#FAF7F2] transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => executeRevertStatus(appointmentToRevert.apt, 'pendiente')}
+                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#8E4455] hover:bg-[#783645] shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Sí, pasar a pendiente</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Toast Feedback for Admin */}
+        {adminToast && (
+          <div className="fixed bottom-6 right-6 z-[150] bg-[#241E1A] text-white text-xs px-5 py-3.5 rounded-2xl shadow-2xl border border-white/20 flex items-center gap-2.5 animate-bounce-short">
+            <Sparkles className="w-4 h-4 text-[#C48B97]" />
+            <span>{adminToast.message}</span>
           </div>
         )}
 

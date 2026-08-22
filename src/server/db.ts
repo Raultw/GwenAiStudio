@@ -358,7 +358,7 @@ export async function initDatabase() {
             hora_inicio VARCHAR(10) NOT NULL,
             hora_fin VARCHAR(10) NOT NULL,
             observaciones TEXT,
-            estado VARCHAR(32) DEFAULT 'confirmado',
+            estado VARCHAR(32) DEFAULT 'pendiente',
             notas_admin TEXT,
             browser_id VARCHAR(128),
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -498,11 +498,22 @@ export async function initDatabase() {
  */
 async function backfillAppointmentsClients() {
   try {
+    // Migrate legacy 'confirmado' status to 'pendiente'
+    if (isPostgresConnected && pgPool) {
+      await pgPool.query(`UPDATE appointments SET estado = 'pendiente' WHERE estado = 'confirmado' OR estado = 'confirmed'`);
+    }
+
     const appointments = await getAppointments();
     if (!appointments || appointments.length === 0) return;
 
     let hasUpdates = false;
     for (const apt of appointments) {
+      // Migrate in-memory legacy status
+      if ((apt.estado as string) === 'confirmado' || (apt.estado as string) === 'confirmed') {
+        apt.estado = 'pendiente';
+        hasUpdates = true;
+      }
+
       if (!apt.clienteId) {
         const client = await findOrCreateClientForBooking({
           nombre: apt.nombre,
@@ -1793,91 +1804,108 @@ export async function createAppointment(apt: Appointment): Promise<Appointment> 
 }
 
 export async function updateAppointment(id: string, updates: Partial<Appointment>): Promise<Appointment | null> {
+  const cleanId = (id || '').trim();
+  let updatedApt: Appointment | null = null;
+
   if (isPostgresConnected && pgPool) {
     try {
-      const currentRes = await pgPool.query('SELECT * FROM appointments WHERE id = $1 OR codigo = $1', [id]);
-      if (currentRes.rows.length === 0) return null;
+      const currentRes = await pgPool.query('SELECT * FROM appointments WHERE id = $1 OR codigo = $1', [cleanId]);
+      if (currentRes.rows.length > 0) {
+        const curr = currentRes.rows[0];
+        const targetId = curr.id;
 
-      const curr = currentRes.rows[0];
-      const targetId = curr.id;
+        await pgPool.query(`
+          UPDATE appointments
+          SET estado = COALESCE($2, estado),
+              notas_admin = COALESCE($3, notas_admin),
+              fecha = COALESCE($4, fecha),
+              hora_inicio = COALESCE($5, hora_inicio),
+              hora_fin = COALESCE($6, hora_fin),
+              cliente_id = COALESCE($7, cliente_id),
+              updated_at = NOW()
+          WHERE id = $1
+        `, [
+          targetId,
+          updates.estado || null,
+          updates.notasAdmin !== undefined ? updates.notasAdmin : null,
+          updates.fecha || null,
+          updates.horaInicio || null,
+          updates.horaFin || null,
+          updates.clienteId || null
+        ]);
 
-      await pgPool.query(`
-        UPDATE appointments
-        SET estado = COALESCE($2, estado),
-            notas_admin = COALESCE($3, notas_admin),
-            fecha = COALESCE($4, fecha),
-            hora_inicio = COALESCE($5, hora_inicio),
-            hora_fin = COALESCE($6, hora_fin),
-            cliente_id = COALESCE($7, cliente_id),
-            updated_at = NOW()
-        WHERE id = $1
-      `, [
-        targetId,
-        updates.estado || null,
-        updates.notasAdmin !== undefined ? updates.notasAdmin : null,
-        updates.fecha || null,
-        updates.horaInicio || null,
-        updates.horaFin || null,
-        updates.clienteId || null
-      ]);
-
-      const updatedRes = await pgPool.query('SELECT * FROM appointments WHERE id = $1', [targetId]);
-      const row = updatedRes.rows[0];
-      return {
-        id: row.id,
-        clienteId: row.cliente_id || undefined,
-        codigo: row.codigo,
-        nombre: row.nombre,
-        apellido: row.apellido,
-        telefono: row.telefono,
-        email: row.email || undefined,
-        servicioId: row.servicio_id,
-        servicioNombre: row.servicio_nombre,
-        duracionMinutos: Number(row.duracion_minutos),
-        precio: Number(row.precio),
-        fecha: row.fecha,
-        horaInicio: row.hora_inicio,
-        horaFin: row.hora_fin,
-        observaciones: row.observaciones || undefined,
-        estado: row.estado as any,
-        notasAdmin: row.notas_admin || undefined,
-        browserId: row.browser_id || undefined,
-        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
-        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
-      };
+        const updatedRes = await pgPool.query('SELECT * FROM appointments WHERE id = $1', [targetId]);
+        const row = updatedRes.rows[0];
+        if (row) {
+          updatedApt = {
+            id: row.id,
+            clienteId: row.cliente_id || undefined,
+            codigo: row.codigo,
+            nombre: row.nombre,
+            apellido: row.apellido,
+            telefono: row.telefono,
+            email: row.email || undefined,
+            servicioId: row.servicio_id,
+            servicioNombre: row.servicio_nombre,
+            duracionMinutos: Number(row.duracion_minutos),
+            precio: Number(row.precio),
+            fecha: row.fecha,
+            horaInicio: row.hora_inicio,
+            horaFin: row.hora_fin,
+            observaciones: row.observaciones || undefined,
+            estado: row.estado as any,
+            notasAdmin: row.notas_admin || undefined,
+            browserId: row.browser_id || undefined,
+            createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+            updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+          };
+        }
+      }
     } catch (err) {
       console.error('Error updating appointment in PostgreSQL:', err);
     }
   }
 
-  const apt = memoryDb.appointments.find(a => a.id === id || a.codigo === id);
-  if (!apt) return null;
-  if (updates.estado) apt.estado = updates.estado;
-  if (updates.notasAdmin !== undefined) apt.notasAdmin = updates.notasAdmin;
-  if (updates.fecha) apt.fecha = updates.fecha;
-  if (updates.horaInicio) apt.horaInicio = updates.horaInicio;
-  if (updates.horaFin) apt.horaFin = updates.horaFin;
-  if (updates.clienteId) apt.clienteId = updates.clienteId;
-  apt.updatedAt = new Date().toISOString();
-  saveLocalFileDb();
-  return apt;
+  // Also update memoryDb
+  const apt = memoryDb.appointments.find(a => a.id === cleanId || a.codigo === cleanId);
+  if (apt) {
+    if (updates.estado) apt.estado = updates.estado;
+    if (updates.notasAdmin !== undefined) apt.notasAdmin = updates.notasAdmin;
+    if (updates.fecha) apt.fecha = updates.fecha;
+    if (updates.horaInicio) apt.horaInicio = updates.horaInicio;
+    if (updates.horaFin) apt.horaFin = updates.horaFin;
+    if (updates.clienteId) apt.clienteId = updates.clienteId;
+    apt.updatedAt = new Date().toISOString();
+    saveLocalFileDb();
+    if (!updatedApt) {
+      updatedApt = apt;
+    }
+  }
+
+  return updatedApt;
 }
 
 export async function deleteAppointment(id: string): Promise<boolean> {
+  const cleanId = (id || '').trim();
+  let deletedFromPg = false;
   if (isPostgresConnected && pgPool) {
     try {
-      const res = await pgPool.query('DELETE FROM appointments WHERE id = $1 OR codigo = $1', [id]);
-      return (res.rowCount ?? 0) > 0;
+      const res = await pgPool.query('DELETE FROM appointments WHERE id = $1 OR codigo = $1', [cleanId]);
+      deletedFromPg = (res.rowCount ?? 0) > 0;
     } catch (err) {
       console.error('Error deleting appointment from PostgreSQL:', err);
     }
   }
 
-  const idx = memoryDb.appointments.findIndex(a => a.id === id || a.codigo === id);
-  if (idx === -1) return false;
-  memoryDb.appointments.splice(idx, 1);
-  saveLocalFileDb();
-  return true;
+  let deletedFromMem = false;
+  const idx = memoryDb.appointments.findIndex(a => a.id === cleanId || a.codigo === cleanId);
+  if (idx !== -1) {
+    memoryDb.appointments.splice(idx, 1);
+    saveLocalFileDb();
+    deletedFromMem = true;
+  }
+
+  return deletedFromPg || deletedFromMem;
 }
 
 // ---------------------------------------------------------------------------

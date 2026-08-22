@@ -84,6 +84,10 @@ export const ClientManagementAdmin: React.FC<ClientManagementAdminProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<'todos' | 'recurrentes' | 'nuevos' | 'inactivos' | 'proximos' | 'duplicados'>('todos');
 
+  // Client Directory Pagination (10 per page max)
+  const [clientPage, setClientPage] = useState<number>(1);
+  const CLIENTS_PER_PAGE = 10;
+
   // Selected Client for Details / History Drawer
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [clientAppointments, setClientAppointments] = useState<Appointment[]>([]);
@@ -181,6 +185,17 @@ export const ClientManagementAdmin: React.FC<ClientManagementAdminProps> = ({
     }, 280);
     return () => clearTimeout(timer);
   }, [searchQuery]);
+
+  // Reset pagination on filter or search change
+  useEffect(() => {
+    setClientPage(1);
+  }, [categoryFilter, searchQuery]);
+
+  const totalClientPages = Math.ceil(clients.length / CLIENTS_PER_PAGE) || 1;
+  const paginatedClients = useMemo(() => {
+    const startIdx = (clientPage - 1) * CLIENTS_PER_PAGE;
+    return clients.slice(startIdx, startIdx + CLIENTS_PER_PAGE);
+  }, [clients, clientPage]);
 
   // Handle Initial Client Lookup when navigating directly from Turnos list
   useEffect(() => {
@@ -925,151 +940,218 @@ export const ClientManagementAdmin: React.FC<ClientManagementAdminProps> = ({
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-[#E8DCD5]">
-              {clients.map((client) => {
-                const isRecurrent = (client.totalTurnos || 0) >= 2;
-                const hasUpcoming = Boolean(client.proximoTurno);
-                const hasDuplicateWarning = Boolean(client.posibleDuplicadoDe && client.posibleDuplicadoDe.length > 0 && !client.duplicadoRevisado);
-                const hasActiveAlerts = (client.alertasActivasCount || 0) > 0;
+            <>
+              <div className="divide-y divide-[#E8DCD5]">
+                {paginatedClients.map((client) => {
+                  const isRecurrent = (client.totalTurnos || 0) >= 2;
+                  const hasUpcoming = Boolean(client.proximoTurno);
+                  const hasDuplicateWarning = Boolean(client.posibleDuplicadoDe && client.posibleDuplicadoDe.length > 0 && !client.duplicadoRevisado);
+                  const hasActiveAlerts = (client.alertasActivasCount || 0) > 0;
 
-                return (
-                  <div
-                    key={client.id}
-                    className="p-4 sm:p-5 hover:bg-[#FAF7F2]/60 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
-                  >
-                    {/* Left: Avatar & Info */}
-                    <div className="flex items-start sm:items-center gap-3.5 min-w-0">
-                      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#8E4455]/15 to-[#8E4455]/5 border border-[#8E4455]/20 flex items-center justify-center font-serif font-bold text-[#8E4455] shrink-0 text-sm">
-                        {getInitials(client.nombre, client.apellido)}
-                      </div>
+                  return (
+                    <div
+                      key={client.id}
+                      className="p-4 sm:p-5 hover:bg-[#FAF7F2]/60 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                    >
+                      {/* Left: Avatar & Info */}
+                      <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                        <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#8E4455]/15 to-[#8E4455]/5 border border-[#8E4455]/20 flex items-center justify-center font-serif font-bold text-[#8E4455] shrink-0 text-sm">
+                          {getInitials(client.nombre, client.apellido)}
+                        </div>
 
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 
-                            onClick={() => handleOpenClientDetails(client)}
-                            className="font-serif text-base font-semibold text-[#241E1A] hover:text-[#8E4455] cursor-pointer transition-colors"
-                          >
-                            {client.nombre} {client.apellido}
-                          </h4>
-
-                          {/* Badges */}
-                          {isRecurrent && (
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
-                              ⭐ Recurrente ({client.totalTurnos})
-                            </span>
-                          )}
-                          {!isRecurrent && (client.totalTurnos || 0) === 1 && (
-                            <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium border border-blue-200">
-                              1 Turno
-                            </span>
-                          )}
-                          {(client.totalTurnos || 0) === 0 && (
-                            <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-[10px] font-medium">
-                              Nueva
-                            </span>
-                          )}
-                          {hasActiveAlerts && (
-                            <span 
-                              onClick={() => handleOpenClientDetails(client, 'alertas')}
-                              className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold border border-rose-300 flex items-center gap-1 cursor-pointer hover:bg-rose-200 transition-colors"
-                              title="Ver alertas sanitarias"
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 
+                              onClick={() => handleOpenClientDetails(client)}
+                              className="font-serif text-base font-semibold text-[#241E1A] hover:text-[#8E4455] cursor-pointer transition-colors"
                             >
-                              <ShieldAlert className="w-3 h-3 text-rose-600" />
-                              Alerta Activa ({client.alertasActivasCount})
-                            </span>
-                          )}
-                          {hasUpcoming && (
-                            <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-semibold border border-purple-200 flex items-center gap-1">
-                              <Calendar className="w-2.5 h-2.5" />
-                              Próx: {formatDateFriendly(client.proximoTurno)} ({client.proximoTurnoHora} hs)
-                            </span>
-                          )}
-                          {hasDuplicateWarning && (
-                            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-300 flex items-center gap-1">
-                              <AlertTriangle className="w-2.5 h-2.5" />
-                              Duda Duplicado
-                            </span>
-                          )}
-                        </div>
+                              {client.nombre} {client.apellido}
+                            </h4>
 
-                        {/* Contact details */}
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-[#7A6B62]">
-                          <a 
-                            href={`https://wa.me/${client.telefonoNormalizado || client.telefono.replace(/\D/g, '')}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 hover:text-emerald-700 font-mono font-medium"
-                          >
-                            <Phone className="w-3 h-3 text-[#8C7A70]" />
-                            <span>{client.telefono}</span>
-                          </a>
+                            {/* Badges */}
+                            {isRecurrent && (
+                              <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-200">
+                                ⭐ Recurrente ({client.totalTurnos})
+                              </span>
+                            )}
+                            {!isRecurrent && (client.totalTurnos || 0) === 1 && (
+                              <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-medium border border-blue-200">
+                                1 Turno
+                              </span>
+                            )}
+                            {(client.totalTurnos || 0) === 0 && (
+                              <span className="px-2 py-0.5 rounded-full bg-stone-100 text-stone-600 text-[10px] font-medium">
+                                Nueva
+                              </span>
+                            )}
+                            {hasActiveAlerts && (
+                              <span 
+                                onClick={() => handleOpenClientDetails(client, 'alertas')}
+                                className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-bold border border-rose-300 flex items-center gap-1 cursor-pointer hover:bg-rose-200 transition-colors"
+                                title="Ver alertas sanitarias"
+                              >
+                                <ShieldAlert className="w-3 h-3 text-rose-600" />
+                                Alerta Activa ({client.alertasActivasCount})
+                              </span>
+                            )}
+                            {hasUpcoming && (
+                              <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-semibold border border-purple-200 flex items-center gap-1">
+                                <Calendar className="w-2.5 h-2.5" />
+                                Próx: {formatDateFriendly(client.proximoTurno)} ({client.proximoTurnoHora} hs)
+                              </span>
+                            )}
+                            {hasDuplicateWarning && (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-300 flex items-center gap-1">
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                Duda Duplicado
+                              </span>
+                            )}
+                          </div>
 
-                          {client.email && (
+                          {/* Contact details */}
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-[#7A6B62]">
+                            <a 
+                              href={`https://wa.me/${client.telefonoNormalizado || client.telefono.replace(/\D/g, '')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 hover:text-emerald-700 font-mono font-medium"
+                            >
+                              <Phone className="w-3 h-3 text-[#8C7A70]" />
+                              <span>{client.telefono}</span>
+                            </a>
+
+                            {client.email && (
+                              <span className="inline-flex items-center gap-1 text-[#8C7A70]">
+                                <Mail className="w-3 h-3" />
+                                <span className="truncate max-w-[180px]">{client.email}</span>
+                              </span>
+                            )}
+
                             <span className="inline-flex items-center gap-1 text-[#8C7A70]">
-                              <Mail className="w-3 h-3" />
-                              <span className="truncate max-w-[180px]">{client.email}</span>
+                              <Clock className="w-3 h-3" />
+                              <span>Última visita: {formatDateFriendly(client.fechaUltimaVisita)}</span>
                             </span>
+                          </div>
+
+                          {/* Admin note snippet */}
+                          {client.notasAdmin && (
+                            <p className="text-[11px] text-amber-900 bg-amber-50/70 px-2 py-0.5 rounded-md mt-1.5 line-clamp-1 border border-amber-200/50">
+                              📝 {client.notasAdmin}
+                            </p>
                           )}
+                        </div>
+                      </div>
 
-                          <span className="inline-flex items-center gap-1 text-[#8C7A70]">
-                            <Clock className="w-3 h-3" />
-                            <span>Última visita: {formatDateFriendly(client.fechaUltimaVisita)}</span>
-                          </span>
+                      {/* Right: Metrics & Actions */}
+                      <div className="flex items-center justify-between lg:justify-end gap-3 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-[#FAF7F2]">
+                        <div className="text-left lg:text-right">
+                          <div className="text-xs font-bold text-[#8E4455]">
+                            ${(client.totalGastado || 0).toLocaleString('es-AR')}
+                          </div>
+                          <div className="text-[10px] text-[#8C7A70]">
+                            {client.totalTurnos || 0} turnos totales
+                          </div>
                         </div>
 
-                        {/* Admin note snippet */}
-                        {client.notasAdmin && (
-                          <p className="text-[11px] text-amber-900 bg-amber-50/70 px-2 py-0.5 rounded-md mt-1.5 line-clamp-1 border border-amber-200/50">
-                            📝 {client.notasAdmin}
-                          </p>
+                        {/* Agendar turno button */}
+                        {onOpenNewBookingWithClient && (
+                          <button
+                            onClick={() => onOpenNewBookingWithClient(client)}
+                            className="p-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                            title="Agendar nuevo turno para esta clienta"
+                          >
+                            <CalendarPlus className="w-4 h-4" />
+                          </button>
                         )}
-                      </div>
-                    </div>
 
-                    {/* Right: Metrics & Actions */}
-                    <div className="flex items-center justify-between lg:justify-end gap-3 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-[#FAF7F2]">
-                      <div className="text-left lg:text-right">
-                        <div className="text-xs font-bold text-[#8E4455]">
-                          ${(client.totalGastado || 0).toLocaleString('es-AR')}
-                        </div>
-                        <div className="text-[10px] text-[#8C7A70]">
-                          {client.totalTurnos || 0} turnos totales
-                        </div>
-                      </div>
-
-                      {/* Agendar turno button */}
-                      {onOpenNewBookingWithClient && (
+                        {/* Edit button */}
                         <button
-                          onClick={() => onOpenNewBookingWithClient(client)}
-                          className="p-2 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
-                          title="Agendar nuevo turno para esta clienta"
+                          onClick={() => handleOpenEdit(client)}
+                          className="p-2 rounded-xl bg-[#FAF7F2] text-[#4A3E39] border border-[#D9C9BF] hover:bg-white transition-colors"
+                          title="Editar datos de clienta"
                         >
-                          <CalendarPlus className="w-4 h-4" />
+                          <Edit3 className="w-4 h-4" />
                         </button>
-                      )}
 
-                      {/* Edit button */}
+                        {/* Full Profile Details Button */}
+                        <button
+                          onClick={() => handleOpenClientDetails(client)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#FAF7F2] hover:bg-[#8E4455] hover:text-white text-[#4A3E39] border border-[#D9C9BF] text-xs font-medium transition-all cursor-pointer"
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          <span>Ficha Completa</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Pagination Controls (Max 10 per page) */}
+              {clients.length > 0 && (
+                <div className="p-4 bg-[#FAF7F2]/80 border-t border-[#E8DCD5] flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                  <div className="text-[#7A6B62] font-medium">
+                    Mostrando <span className="font-bold text-[#241E1A]">{(clientPage - 1) * CLIENTS_PER_PAGE + 1}</span> a <span className="font-bold text-[#241E1A]">{Math.min(clientPage * CLIENTS_PER_PAGE, clients.length)}</span> de <span className="font-bold text-[#241E1A]">{clients.length}</span> clientas
+                  </div>
+
+                  {totalClientPages > 1 && (
+                    <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => handleOpenEdit(client)}
-                        className="p-2 rounded-xl bg-[#FAF7F2] text-[#4A3E39] border border-[#D9C9BF] hover:bg-white transition-colors"
-                        title="Editar datos de clienta"
+                        type="button"
+                        disabled={clientPage === 1}
+                        onClick={() => setClientPage(p => Math.max(1, p - 1))}
+                        className="px-3 py-1.5 rounded-xl border border-[#D9C9BF] bg-white text-[#241E1A] font-medium hover:bg-[#F0E6DE] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer"
                       >
-                        <Edit3 className="w-4 h-4" />
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                        <span>Anterior</span>
                       </button>
 
-                      {/* Full Profile Details Button */}
+                      <div className="flex items-center gap-1 px-1">
+                        {Array.from({ length: totalClientPages }, (_, i) => i + 1).map((pageNum) => {
+                          if (
+                            pageNum === 1 || 
+                            pageNum === totalClientPages || 
+                            (pageNum >= clientPage - 1 && pageNum <= clientPage + 1)
+                          ) {
+                            return (
+                              <button
+                                key={pageNum}
+                                type="button"
+                                onClick={() => setClientPage(pageNum)}
+                                className={`w-7 h-7 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                                  clientPage === pageNum
+                                    ? 'bg-[#8E4455] text-white shadow-xs'
+                                    : 'bg-white text-[#5A4B43] border border-[#E8DCD5] hover:bg-[#F0E6DE]'
+                                }`}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          }
+                          if (
+                            (pageNum === 2 && clientPage > 3) || 
+                            (pageNum === totalClientPages - 1 && clientPage < totalClientPages - 2)
+                          ) {
+                            return <span key={pageNum} className="text-[#A8988F] px-0.5">...</span>;
+                          }
+                          return null;
+                        })}
+                      </div>
+
                       <button
-                        onClick={() => handleOpenClientDetails(client)}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#FAF7F2] hover:bg-[#8E4455] hover:text-white text-[#4A3E39] border border-[#D9C9BF] text-xs font-medium transition-all cursor-pointer"
+                        type="button"
+                        disabled={clientPage === totalClientPages}
+                        onClick={() => setClientPage(p => Math.min(totalClientPages, p + 1))}
+                        className="px-3 py-1.5 rounded-xl border border-[#D9C9BF] bg-white text-[#241E1A] font-medium hover:bg-[#F0E6DE] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer"
                       >
-                        <History className="w-3.5 h-3.5" />
-                        <span>Ficha Completa</span>
+                        <span>Siguiente</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -1354,7 +1436,6 @@ export const ClientManagementAdmin: React.FC<ClientManagementAdminProps> = ({
                                 <div className="flex items-center gap-2">
                                   <span className="font-serif font-bold text-sm text-[#241E1A]">{lastApt.servicioNombre}</span>
                                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    lastApt.estado === 'confirmado' ? 'bg-emerald-100 text-emerald-800' :
                                     lastApt.estado === 'completado' ? 'bg-blue-100 text-blue-800' :
                                     lastApt.estado === 'cancelado' ? 'bg-rose-100 text-rose-800' :
                                     'bg-amber-100 text-amber-800'
@@ -1828,7 +1909,6 @@ export const ClientManagementAdmin: React.FC<ClientManagementAdminProps> = ({
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-serif font-bold text-sm text-[#241E1A]">{apt.servicioNombre}</span>
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          apt.estado === 'confirmado' ? 'bg-emerald-100 text-emerald-800' :
                           apt.estado === 'completado' ? 'bg-blue-100 text-blue-800' :
                           apt.estado === 'cancelado' ? 'bg-rose-100 text-rose-800' :
                           'bg-amber-100 text-amber-800'

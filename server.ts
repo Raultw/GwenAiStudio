@@ -399,7 +399,7 @@ app.post("/api/turnos", async (req, res) => {
       horaInicio: hora_inicio,
       horaFin,
       observaciones: observaciones ? String(observaciones).trim() : undefined,
-      estado: "confirmado",
+      estado: "pendiente",
       browserId: browserId ? String(browserId).trim() : undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -490,10 +490,9 @@ app.get("/api/turnos/stats", async (req, res) => {
 
     const todayList = allAppointments.filter(a => a.fecha === today && a.estado !== "cancelado");
     const pendingCount = allAppointments.filter(a => a.estado === "pendiente").length;
-    const confirmedCount = allAppointments.filter(a => a.estado === "confirmado").length;
     
     const thisMonthList = allAppointments.filter(a => a.fecha.startsWith(currentMonthPrefix) && a.estado !== "cancelado");
-    const completedThisMonth = thisMonthList.filter(a => a.estado === "completado" || a.estado === "confirmado").length;
+    const completedThisMonth = thisMonthList.filter(a => a.estado === "completado").length;
     const estimatedRevenue = thisMonthList.reduce((acc, curr) => acc + (curr.precio || 0), 0);
 
     const serviceCounter: Record<string, { nombre: string; count: number; revenue: number }> = {};
@@ -527,7 +526,6 @@ app.get("/api/turnos/stats", async (req, res) => {
     const stats: DashboardStats = {
       turnosHoy: todayList.length,
       turnosPendientes: pendingCount,
-      turnosConfirmados: confirmedCount,
       turnosCompletadosMes: completedThisMonth,
       ingresosEstimadosMes: estimatedRevenue,
       totalTurnos: allAppointments.length,

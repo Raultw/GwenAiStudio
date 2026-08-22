@@ -960,7 +960,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                   ) : (
                     <>
                       <Send className="w-4 h-4" />
-                      <span>Confirmar y Reservar Mi Turno</span>
+                      <span>Reservar Mi Turno</span>
                     </>
                   )}
                 </button>

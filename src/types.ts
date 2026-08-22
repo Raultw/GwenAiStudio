@@ -1,4 +1,4 @@
-export type AppointmentStatus = 'pendiente' | 'confirmado' | 'completado' | 'cancelado';
+export type AppointmentStatus = 'pendiente' | 'completado' | 'cancelado';
 
 export interface Client {
   id: string; // UUID
@@ -213,7 +213,7 @@ export interface StudioConfig {
 export interface DashboardStats {
   turnosHoy: number;
   turnosPendientes: number;
-  turnosConfirmados: number;
+  turnosConfirmados?: number;
   turnosCompletadosMes: number;
   ingresosEstimadosMes: number;
   totalTurnos: number;

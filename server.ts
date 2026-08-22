@@ -21,7 +21,17 @@ import {
   deleteAppointment,
   getStudioConfig,
   updateStudioConfig,
-  isDatabasePostgres
+  isDatabasePostgres,
+  getClients,
+  getClientById,
+  createClient,
+  updateClient,
+  deleteClient,
+  getPotentialDuplicatePairs,
+  mergeClients,
+  dismissDuplicatePair,
+  getClientStats,
+  findOrCreateClientForBooking
 } from "./src/server/db.js";
 
 const app = express();
@@ -298,7 +308,7 @@ app.get("/api/availability", async (req, res) => {
 // 6. POST /api/turnos (Booking creation)
 app.post("/api/turnos", async (req, res) => {
   try {
-    const { nombre, apellido, telefono, email, servicio_id, fecha, hora_inicio, observaciones } = req.body;
+    const { nombre, apellido, telefono, email, servicio_id, fecha, hora_inicio, observaciones, browserId } = req.body;
 
     if (!nombre || !apellido || !telefono || !servicio_id || !fecha || !hora_inicio) {
       res.status(400).json({ error: "Todos los campos obligatorios deben ser completados." });
@@ -352,11 +362,22 @@ app.post("/api/turnos", async (req, res) => {
       return;
     }
 
+    // Identify or create client silently in backend
+    const client = await findOrCreateClientForBooking({
+      nombre: String(nombre).trim(),
+      apellido: String(apellido).trim(),
+      telefono: String(telefono).trim(),
+      email: email ? String(email).trim() : undefined,
+      fecha,
+      browserId: browserId ? String(browserId).trim() : undefined
+    });
+
     const codeNumber = Math.floor(1000 + Math.random() * 9000);
     const bookingCode = `GWEN-${codeNumber}`;
 
     const newAppointment: Appointment = {
       id: `apt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      clienteId: client.id,
       codigo: bookingCode,
       nombre: String(nombre).trim(),
       apellido: String(apellido).trim(),
@@ -371,6 +392,7 @@ app.post("/api/turnos", async (req, res) => {
       horaFin,
       observaciones: observaciones ? String(observaciones).trim() : undefined,
       estado: "confirmado",
+      browserId: browserId ? String(browserId).trim() : undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -509,6 +531,150 @@ app.get("/api/turnos/stats", async (req, res) => {
   } catch (error) {
     console.error("Error in GET /api/turnos/stats:", error);
     res.status(500).json({ error: "Error al calcular estadísticas" });
+  }
+});
+
+// ============================================================================
+// CLIENT MANAGEMENT API ROUTES
+// ============================================================================
+
+// A. GET /api/clientes (List with search, category filtering & statistics)
+app.get("/api/clientes", async (req, res) => {
+  try {
+    const { search, category, activeOnly } = req.query;
+    const clients = await getClients({
+      search: search ? String(search) : undefined,
+      category: (category as any) || "todos",
+      activeOnly: activeOnly !== "false"
+    });
+    res.json(clients);
+  } catch (error) {
+    console.error("Error in GET /api/clientes:", error);
+    res.status(500).json({ error: "Error al obtener lista de clientes" });
+  }
+});
+
+// B. GET /api/clientes/stats (KPI metrics)
+app.get("/api/clientes/stats", async (req, res) => {
+  try {
+    const stats = await getClientStats();
+    res.json(stats);
+  } catch (error) {
+    console.error("Error in GET /api/clientes/stats:", error);
+    res.status(500).json({ error: "Error al calcular estadísticas de clientes" });
+  }
+});
+
+// C. GET /api/clientes/duplicados (Potential duplicate pairs list)
+app.get("/api/clientes/duplicados", async (req, res) => {
+  try {
+    const duplicates = await getPotentialDuplicatePairs();
+    res.json(duplicates);
+  } catch (error) {
+    console.error("Error in GET /api/clientes/duplicados:", error);
+    res.status(500).json({ error: "Error al detectar clientes duplicados" });
+  }
+});
+
+// D. POST /api/clientes/fusionar (Merge two client profiles)
+app.post("/api/clientes/fusionar", async (req, res) => {
+  try {
+    const { primaryId, secondaryId, adminNotes } = req.body;
+    if (!primaryId || !secondaryId) {
+      res.status(400).json({ error: "Debe especificar primaryId y secondaryId para fusionar." });
+      return;
+    }
+    const result = await mergeClients(primaryId, secondaryId, adminNotes);
+    res.json({
+      message: "Clientes fusionados exitosamente.",
+      ...result
+    });
+  } catch (error: any) {
+    console.error("Error in POST /api/clientes/fusionar:", error);
+    res.status(500).json({ error: error.message || "Error al fusionar clientes" });
+  }
+});
+
+// E. POST /api/clientes/descartar-duplicado (Dismiss duplicate alert)
+app.post("/api/clientes/descartar-duplicado", async (req, res) => {
+  try {
+    const { idA, idB } = req.body;
+    if (!idA || !idB) {
+      res.status(400).json({ error: "Se requieren idA e idB para descartar alerta." });
+      return;
+    }
+    await dismissDuplicatePair(idA, idB);
+    res.json({ message: "Alerta de duplicado descartada con éxito." });
+  } catch (error) {
+    console.error("Error in POST /api/clientes/descartar-duplicado:", error);
+    res.status(500).json({ error: "Error al descartar alerta" });
+  }
+});
+
+// F. GET /api/clientes/:id (Single client with full appointment history)
+app.get("/api/clientes/:id", async (req, res) => {
+  try {
+    const clientData = await getClientById(req.params.id);
+    if (!clientData) {
+      res.status(404).json({ error: "Cliente no encontrado" });
+      return;
+    }
+    res.json(clientData);
+  } catch (error) {
+    console.error("Error in GET /api/clientes/:id:", error);
+    res.status(500).json({ error: "Error al obtener ficha de cliente" });
+  }
+});
+
+// G. POST /api/clientes (Manual client creation by admin)
+app.post("/api/clientes", async (req, res) => {
+  try {
+    const { nombre, apellido, telefono, email, notasAdmin } = req.body;
+    if (!nombre || !apellido || !telefono) {
+      res.status(400).json({ error: "Nombre, apellido y teléfono son obligatorios." });
+      return;
+    }
+    const created = await createClient({
+      nombre: String(nombre).trim(),
+      apellido: String(apellido).trim(),
+      telefono: String(telefono).trim(),
+      email: email ? String(email).trim() : undefined,
+      notasAdmin: notasAdmin ? String(notasAdmin).trim() : undefined
+    });
+    res.status(201).json(created);
+  } catch (error) {
+    console.error("Error in POST /api/clientes:", error);
+    res.status(500).json({ error: "Error al registrar cliente" });
+  }
+});
+
+// H. PUT /api/clientes/:id (Update client details or notes)
+app.put("/api/clientes/:id", async (req, res) => {
+  try {
+    const updated = await updateClient(req.params.id, req.body);
+    if (!updated) {
+      res.status(404).json({ error: "Cliente no encontrado" });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("Error in PUT /api/clientes/:id:", error);
+    res.status(500).json({ error: "Error al actualizar cliente" });
+  }
+});
+
+// I. DELETE /api/clientes/:id (Soft delete / deactivate)
+app.delete("/api/clientes/:id", async (req, res) => {
+  try {
+    const deleted = await deleteClient(req.params.id);
+    if (!deleted) {
+      res.status(404).json({ error: "Cliente no encontrado" });
+      return;
+    }
+    res.json({ message: "Cliente desactivado con éxito." });
+  } catch (error) {
+    console.error("Error in DELETE /api/clientes/:id:", error);
+    res.status(500).json({ error: "Error al eliminar cliente" });
   }
 });
 

@@ -23,7 +23,8 @@ import {
   User, 
   FileText,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Users
 } from 'lucide-react';
 import type { 
   Appointment, 
@@ -32,6 +33,7 @@ import type {
   DashboardStats, 
   AppointmentStatus 
 } from '../types.js';
+import { ClientManagementAdmin } from './ClientManagementAdmin.js';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -81,7 +83,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [pinInput, setPinInput] = useState<string>('');
   const [pinError, setPinError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<'agenda' | 'nuevo' | 'bloqueos' | 'servicios' | 'horarios' | 'stats'>('agenda');
+  const [activeTab, setActiveTab] = useState<'agenda' | 'clientes' | 'nuevo' | 'bloqueos' | 'servicios' | 'horarios' | 'stats'>('agenda');
 
   // Data states
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -646,6 +648,18 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </button>
 
               <button
+                onClick={() => setActiveTab('clientes')}
+                className={`px-4 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'clientes'
+                    ? 'bg-[#8E4455] text-white shadow-xs'
+                    : 'text-[#5A4B43] hover:bg-[#FAF7F2]'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Clientas & Historial</span>
+              </button>
+
+              <button
                 onClick={() => setActiveTab('nuevo')}
                 className={`px-4 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
                   activeTab === 'nuevo'
@@ -697,6 +711,23 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             {/* Tab Content Body */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               
+              {/* TAB: CLIENTES & HISTORIAL UNIFICADO */}
+              {activeTab === 'clientes' && (
+                <ClientManagementAdmin 
+                  services={services} 
+                  onRefreshData={loadAdminData}
+                  onOpenNewBookingWithClient={(client) => {
+                    setManualForm(prev => ({
+                      ...prev,
+                      nombre: client.nombre,
+                      apellido: client.apellido,
+                      telefono: client.telefono
+                    }));
+                    setActiveTab('nuevo');
+                  }}
+                />
+              )}
+
               {/* TAB 1: AGENDA DE TURNOS */}
               {activeTab === 'agenda' && (
                 <div className="space-y-4">

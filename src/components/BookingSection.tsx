@@ -8,6 +8,7 @@ import {
   Send, 
   User, 
   Phone, 
+  Mail,
   FileText, 
   ChevronLeft, 
   ChevronRight,
@@ -38,7 +39,22 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
   const [nombre, setNombre] = useState<string>('');
   const [apellido, setApellido] = useState<string>('');
   const [telefono, setTelefono] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
   const [observaciones, setObservaciones] = useState<string>('');
+
+  // Anonymous Device Identifier for backend client association
+  const getBrowserId = () => {
+    try {
+      let bId = localStorage.getItem('gwen_client_dev_id');
+      if (!bId) {
+        bId = 'dev-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+        localStorage.setItem('gwen_client_dev_id', bId);
+      }
+      return bId;
+    } catch {
+      return undefined;
+    }
+  };
 
   // Refs for smooth focus/scroll
   const confirmationRef = useRef<HTMLDivElement | null>(null);
@@ -256,10 +272,12 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
         nombre: nombre.trim(),
         apellido: apellido.trim(),
         telefono: telefono.trim(),
+        email: email.trim() ? email.trim() : undefined,
         servicio_id: selectedServiceId,
         fecha: selectedDate,
         hora_inicio: selectedTime,
-        observaciones: observaciones.trim()
+        observaciones: observaciones.trim(),
+        browserId: getBrowserId()
       };
 
       const res = await fetch('/api/turnos', {
@@ -799,23 +817,41 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                   </div>
                 </div>
 
-                <div className="mb-4">
-                  <label className="block text-xs font-medium text-[#4A3E39] mb-1.5">
-                    Teléfono / WhatsApp *
-                  </label>
-                  <div className="relative">
-                    <Phone className="w-4 h-4 text-[#8C7A70] absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="tel"
-                      value={telefono}
-                      onChange={(e) => setTelefono(e.target.value)}
-                      placeholder="Ej: 11-4521-8899 ó +54 9 11..."
-                      className={`w-full pl-10 pr-4 py-3 rounded-xl bg-[#FAF7F2] border text-sm text-[#241E1A] placeholder-[#A6978E] focus:outline-none focus:bg-white transition-all ${
-                        errors.telefono ? 'border-rose-400 bg-rose-50/30' : 'border-[#D9C9BF] focus:border-[#8E4455]'
-                      }`}
-                    />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-medium text-[#4A3E39] mb-1.5">
+                      Teléfono / WhatsApp *
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-[#8C7A70] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="tel"
+                        value={telefono}
+                        onChange={(e) => setTelefono(e.target.value)}
+                        placeholder="Ej: 11-4521-8899 ó +54 9 11..."
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl bg-[#FAF7F2] border text-sm text-[#241E1A] placeholder-[#A6978E] focus:outline-none focus:bg-white transition-all ${
+                          errors.telefono ? 'border-rose-400 bg-rose-50/30' : 'border-[#D9C9BF] focus:border-[#8E4455]'
+                        }`}
+                      />
+                    </div>
+                    {errors.telefono && <p className="mt-1 text-xs text-rose-600">{errors.telefono}</p>}
                   </div>
-                  {errors.telefono && <p className="mt-1 text-xs text-rose-600">{errors.telefono}</p>}
+
+                  <div>
+                    <label className="block text-xs font-medium text-[#4A3E39] mb-1.5">
+                      Email <span className="text-[#8C7A70] font-normal">(Opcional)</span>
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-[#8C7A70] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="ejemplo@correo.com"
+                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-sm text-[#241E1A] placeholder-[#A6978E] focus:outline-none focus:border-[#8E4455] focus:bg-white transition-all"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div>

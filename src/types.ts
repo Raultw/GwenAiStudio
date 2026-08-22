@@ -1,5 +1,58 @@
 export type AppointmentStatus = 'pendiente' | 'confirmado' | 'completado' | 'cancelado';
 
+export interface Client {
+  id: string; // UUID
+  nombre: string;
+  apellido: string;
+  telefono: string;
+  telefonoNormalizado: string; // Canonical clean digits (e.g. 1112345678)
+  email?: string;
+  emailNormalizado?: string;
+  nombreNormalizado: string;
+  apellidoNormalizado: string;
+  notasAdmin?: string; // Observaciones internas exclusivas del administrador
+  fechaAlta: string; // ISO date
+  fechaUltimaVisita?: string; // YYYY-MM-DD
+  activo: boolean;
+  browserId?: string; // Identificador técnico complementario anónimo
+  
+  // Auditoría calculada / enriquecida
+  totalTurnos?: number;
+  totalGastado?: number;
+  primerTurnoFecha?: string;
+  proximoTurno?: string; // YYYY-MM-DD
+  proximoTurnoHora?: string; // HH:mm
+  proximoTurnoServicio?: string;
+  serviciosHistorial?: string[]; // Lista de nombres de servicios solicitados
+  
+  // Detección de posibles duplicados
+  posibleDuplicadoDe?: string[]; // IDs de otros clientes similares
+  motivoPosibleDuplicado?: string;
+  nivelCoincidenciaDuplicado?: number; // 0-100
+  duplicadoRevisado?: boolean;
+  fusionadoConId?: string; // ID del cliente principal en caso de fusión
+  fechaFusion?: string;
+}
+
+export interface DuplicatePair {
+  id: string; // Identificador del par de duplicados
+  clienteA: Client;
+  clienteB: Client;
+  confianza: number; // Porcentaje 0-100
+  motivo: string;
+  turnosA: Appointment[];
+  turnosB: Appointment[];
+}
+
+export interface ClientStats {
+  totalClientes: number;
+  clientesNuevos: number; // Primer turno en últimos 30 días
+  clientesRecurrentes: number; // 2 o más turnos
+  clientesInactivos: number; // Sin turnos en últimos 60 días
+  clientesConProximosTurnos: number;
+  duplicadosPendientes: number;
+}
+
 export interface Service {
   id: string;
   nombre: string;
@@ -16,6 +69,7 @@ export interface Service {
 
 export interface Appointment {
   id: string;
+  clienteId?: string; // Relación con entidad Cliente (UUID)
   codigo: string;
   nombre: string;
   apellido: string;
@@ -33,6 +87,7 @@ export interface Appointment {
   createdAt: string;
   updatedAt: string;
   notasAdmin?: string;
+  browserId?: string;
 }
 
 export interface TimeSlot {

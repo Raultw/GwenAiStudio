@@ -31,7 +31,15 @@ import {
   mergeClients,
   dismissDuplicatePair,
   getClientStats,
-  findOrCreateClientForBooking
+  findOrCreateClientForBooking,
+  getClientAlerts,
+  createClientAlert,
+  updateClientAlert,
+  deleteClientAlert,
+  getClientPreferences,
+  saveClientPreferences,
+  getClientTipsConfig,
+  saveClientTipsConfig
 } from "./src/server/db.js";
 
 const app = express();
@@ -675,6 +683,121 @@ app.delete("/api/clientes/:id", async (req, res) => {
   } catch (error) {
     console.error("Error in DELETE /api/clientes/:id:", error);
     res.status(500).json({ error: "Error al eliminar cliente" });
+  }
+});
+
+// J. CLIENT ALERTS API ROUTES
+// GET /api/clientes/:id/alertas
+app.get("/api/clientes/:id/alertas", async (req, res) => {
+  try {
+    const { activeOnly } = req.query;
+    const alerts = await getClientAlerts(req.params.id, activeOnly === "true");
+    res.json(alerts);
+  } catch (error) {
+    console.error("Error in GET /api/clientes/:id/alertas:", error);
+    res.status(500).json({ error: "Error al obtener alertas del cliente" });
+  }
+});
+
+// POST /api/clientes/:id/alertas
+app.post("/api/clientes/:id/alertas", async (req, res) => {
+  try {
+    const { tipo, descripcion, productoServicioRelacionado, fecha, severidad, activa, observaciones } = req.body;
+    if (!tipo || !descripcion) {
+      res.status(400).json({ error: "El tipo y la descripción de la alerta son obligatorios." });
+      return;
+    }
+    const created = await createClientAlert({
+      clienteId: req.params.id,
+      tipo,
+      descripcion,
+      productoServicioRelacionado,
+      fecha,
+      severidad,
+      activa,
+      observaciones
+    });
+    res.status(201).json(created);
+  } catch (error) {
+    console.error("Error in POST /api/clientes/:id/alertas:", error);
+    res.status(500).json({ error: "Error al registrar alerta del cliente" });
+  }
+});
+
+// PUT /api/clientes/:id/alertas/:alertId
+app.put("/api/clientes/:id/alertas/:alertId", async (req, res) => {
+  try {
+    const updated = await updateClientAlert(req.params.alertId, req.body);
+    if (!updated) {
+      res.status(404).json({ error: "Alerta no encontrada" });
+      return;
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error("Error in PUT /api/clientes/:id/alertas/:alertId:", error);
+    res.status(500).json({ error: "Error al actualizar alerta del cliente" });
+  }
+});
+
+// DELETE /api/clientes/:id/alertas/:alertId
+app.delete("/api/clientes/:id/alertas/:alertId", async (req, res) => {
+  try {
+    const deleted = await deleteClientAlert(req.params.alertId);
+    if (!deleted) {
+      res.status(404).json({ error: "Alerta no encontrada" });
+      return;
+    }
+    res.json({ message: "Alerta eliminada correctamente." });
+  } catch (error) {
+    console.error("Error in DELETE /api/clientes/:id/alertas/:alertId:", error);
+    res.status(500).json({ error: "Error al eliminar alerta" });
+  }
+});
+
+// K. CLIENT PREFERENCES API ROUTES
+// GET /api/clientes/:id/preferencias
+app.get("/api/clientes/:id/preferencias", async (req, res) => {
+  try {
+    const prefs = await getClientPreferences(req.params.id);
+    res.json(prefs || {});
+  } catch (error) {
+    console.error("Error in GET /api/clientes/:id/preferencias:", error);
+    res.status(500).json({ error: "Error al obtener preferencias del cliente" });
+  }
+});
+
+// PUT /api/clientes/:id/preferencias
+app.put("/api/clientes/:id/preferencias", async (req, res) => {
+  try {
+    const saved = await saveClientPreferences(req.params.id, req.body);
+    res.json(saved);
+  } catch (error) {
+    console.error("Error in PUT /api/clientes/:id/preferencias:", error);
+    res.status(500).json({ error: "Error al guardar preferencias del cliente" });
+  }
+});
+
+// L. CLIENT TIPS CONFIG API ROUTES
+// GET /api/clientes/:id/tips
+app.get("/api/clientes/:id/tips", async (req, res) => {
+  try {
+    const tips = await getClientTipsConfig(req.params.id);
+    res.json(tips);
+  } catch (error) {
+    console.error("Error in GET /api/clientes/:id/tips:", error);
+    res.status(500).json({ error: "Error al obtener configuración de tips" });
+  }
+});
+
+// PUT /api/clientes/:id/tips
+app.put("/api/clientes/:id/tips", async (req, res) => {
+  try {
+    const tipsList = Array.isArray(req.body) ? req.body : (req.body.tips || []);
+    const saved = await saveClientTipsConfig(req.params.id, tipsList);
+    res.json(saved);
+  } catch (error) {
+    console.error("Error in PUT /api/clientes/:id/tips:", error);
+    res.status(500).json({ error: "Error al guardar configuración de tips" });
   }
 });
 

@@ -84,6 +84,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [pinError, setPinError] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'agenda' | 'clientes' | 'nuevo' | 'bloqueos' | 'servicios' | 'horarios' | 'stats'>('agenda');
+  const [clientLookupForFicha, setClientLookupForFicha] = useState<{ id?: string; telefono?: string; nombre?: string; apellido?: string } | null>(null);
+
+  const handleOpenClientFicha = (apt: Appointment) => {
+    setClientLookupForFicha({
+      id: apt.clienteId,
+      telefono: apt.telefono,
+      nombre: apt.nombre,
+      apellido: apt.apellido
+    });
+    setActiveTab('clientes');
+  };
 
   // Data states
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -716,6 +727,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 <ClientManagementAdmin 
                   services={services} 
                   onRefreshData={loadAdminData}
+                  initialClientLookup={clientLookupForFicha}
+                  onClearInitialClientLookup={() => setClientLookupForFicha(null)}
                   onOpenNewBookingWithClient={(client) => {
                     setManualForm(prev => ({
                       ...prev,
@@ -812,9 +825,17 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                               <div className="flex items-start justify-between gap-2 mb-3">
                                 <div>
                                   <div className="flex items-center gap-2">
-                                    <span className="font-bold text-[#241E1A] text-base">
-                                      {apt.nombre} {apt.apellido}
-                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenClientFicha(apt)}
+                                      className="font-bold text-[#241E1A] text-base hover:text-[#8E4455] transition-colors cursor-pointer text-left flex items-center gap-1.5 group"
+                                      title="Ver ficha completa de clienta (historial, alertas, preferencias y tips)"
+                                    >
+                                      <span>{apt.nombre} {apt.apellido}</span>
+                                      <span className="text-[10px] text-[#8E4455] bg-rose-50 border border-rose-200/60 px-1.5 py-0.2 rounded-md font-medium opacity-80 group-hover:opacity-100 group-hover:bg-rose-100 transition-all">
+                                        Ficha ↗
+                                      </span>
+                                    </button>
                                     <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full border ${statusBadge}`}>
                                       {apt.estado}
                                     </span>

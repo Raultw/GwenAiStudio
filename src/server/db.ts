@@ -10,10 +10,16 @@ import type {
   StudioConfig,
   Client,
   DuplicatePair,
-  ClientStats
+  ClientStats,
+  ClientAlert,
+  ClientPreferences,
+  ClientTipConfigItem,
+  ClientWithFullProfile
 } from '../types.js';
 import { 
   normalizeText, 
+  normalizePersonName,
+  normalizeBrandName,
   normalizePhone, 
   normalizeEmail, 
   evaluateClientMatch, 
@@ -172,7 +178,8 @@ export const defaultStudioConfig: StudioConfig = {
   diasBloqueados: [],
   horariosBloqueados: {},
   bloqueosDetallados: [],
-  pinAdmin: "1234"
+  pinAdmin: "1234",
+  diasInactividadCliente: 60
 };
 
 // In-Memory & Local File Fallback Engine
@@ -183,6 +190,9 @@ interface FallbackDb {
   services: Service[];
   appointments: Appointment[];
   clients: Client[];
+  clientAlerts: ClientAlert[];
+  clientPreferences: ClientPreferences[];
+  clientTipsConfig: ClientTipConfigItem[];
   config: StudioConfig;
 }
 
@@ -190,6 +200,9 @@ const memoryDb: FallbackDb = {
   services: defaultServices,
   appointments: [],
   clients: [],
+  clientAlerts: [],
+  clientPreferences: [],
+  clientTipsConfig: [],
   config: defaultStudioConfig
 };
 
@@ -209,6 +222,15 @@ function loadLocalFileDb() {
       }
       if (parsed.clients && Array.isArray(parsed.clients)) {
         memoryDb.clients = parsed.clients;
+      }
+      if (parsed.clientAlerts && Array.isArray(parsed.clientAlerts)) {
+        memoryDb.clientAlerts = parsed.clientAlerts;
+      }
+      if (parsed.clientPreferences && Array.isArray(parsed.clientPreferences)) {
+        memoryDb.clientPreferences = parsed.clientPreferences;
+      }
+      if (parsed.clientTipsConfig && Array.isArray(parsed.clientTipsConfig)) {
+        memoryDb.clientTipsConfig = parsed.clientTipsConfig;
       }
       if (parsed.config) {
         memoryDb.config = { ...defaultStudioConfig, ...parsed.config };
@@ -358,6 +380,62 @@ export async function initDatabase() {
             config JSONB NOT NULL,
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
           );
+        `);
+
+        // 5. Create Client Alerts Table
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS client_alerts (
+            id VARCHAR(64) PRIMARY KEY,
+            cliente_id VARCHAR(64) NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+            tipo VARCHAR(64) NOT NULL,
+            descripcion TEXT NOT NULL,
+            producto_servicio_relacionado VARCHAR(255),
+            fecha VARCHAR(10) NOT NULL,
+            severidad VARCHAR(32) NOT NULL DEFAULT 'moderada',
+            activa BOOLEAN NOT NULL DEFAULT TRUE,
+            observaciones TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_client_alerts_cliente_id ON client_alerts(cliente_id);
+          CREATE INDEX IF NOT EXISTS idx_client_alerts_activa ON client_alerts(activa);
+        `);
+
+        // 6. Create Client Preferences Table
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS client_preferences (
+            id VARCHAR(64) PRIMARY KEY,
+            cliente_id VARCHAR(64) NOT NULL UNIQUE REFERENCES clients(id) ON DELETE CASCADE,
+            forma_unas VARCHAR(128),
+            largo_habitual VARCHAR(128),
+            estilo VARCHAR(128),
+            colores_preferidos JSONB DEFAULT '[]',
+            productos_preferidos TEXT,
+            productos_evitar TEXT,
+            observaciones_generales TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_client_preferences_cliente_id ON client_preferences(cliente_id);
+        `);
+
+        // 7. Create Client Tips Config Table
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS client_tips_config (
+            id VARCHAR(64) PRIMARY KEY,
+            cliente_id VARCHAR(64) NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+            mano VARCHAR(32) NOT NULL,
+            dedo VARCHAR(32) NOT NULL,
+            tamano_tip VARCHAR(32) NOT NULL,
+            marca_modelo VARCHAR(128),
+            observaciones TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_client_tips_cliente_id ON client_tips_config(cliente_id);
         `);
 
         // Seed initial services if empty
@@ -530,9 +608,13 @@ export async function getClients(filter?: {
 
   // Enrich with appointment stats
   const allAppointments = await getAppointments();
+  const studioConfig = await getStudioConfig();
+  const diasInactividad = studioConfig.diasInactividadCliente || 60;
   const todayStr = new Date().toISOString().split('T')[0];
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const inactivityDaysAgo = new Date(Date.now() - diasInactividad * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const allActiveAlerts = await getClientAlerts(undefined, true);
 
   const enrichedClients = rawClients.map(client => {
     const clientApts = allAppointments.filter(a =>
@@ -564,6 +646,8 @@ export async function getClients(filter?: {
       .sort((a, b) => b[1] - a[1])
       .map(([name]) => name);
 
+    const clientAlerts = allActiveAlerts.filter(al => al.clienteId === client.id);
+
     return {
       ...client,
       totalTurnos,
@@ -573,7 +657,9 @@ export async function getClients(filter?: {
       proximoTurno: nextApt ? nextApt.fecha : undefined,
       proximoTurnoHora: nextApt ? nextApt.horaInicio : undefined,
       proximoTurnoServicio: nextApt ? nextApt.servicioNombre : undefined,
-      serviciosHistorial
+      serviciosHistorial,
+      alertasActivasCount: clientAlerts.length,
+      alertasActivas: clientAlerts
     };
   });
 
@@ -585,7 +671,7 @@ export async function getClients(filter?: {
     } else if (filter.category === 'nuevos') {
       result = result.filter(c => c.fechaAlta >= thirtyDaysAgo || (c.primerTurnoFecha && c.primerTurnoFecha >= thirtyDaysAgo));
     } else if (filter.category === 'inactivos') {
-      result = result.filter(c => !c.fechaUltimaVisita || c.fechaUltimaVisita < sixtyDaysAgo);
+      result = result.filter(c => !c.fechaUltimaVisita || c.fechaUltimaVisita < inactivityDaysAgo);
     } else if (filter.category === 'proximos') {
       result = result.filter(c => Boolean(c.proximoTurno));
     } else if (filter.category === 'duplicados') {
@@ -610,7 +696,7 @@ export async function getClients(filter?: {
   return result;
 }
 
-export async function getClientById(id: string): Promise<{ client: Client; appointments: Appointment[] } | null> {
+export async function getClientById(id: string): Promise<ClientWithFullProfile | null> {
   const clients = await getClients({ activeOnly: false });
   const client = clients.find(c => c.id === id);
   if (!client) return null;
@@ -620,9 +706,16 @@ export async function getClientById(id: string): Promise<{ client: Client; appoi
     .filter(a => a.clienteId === client.id || (a.telefono && normalizePhone(a.telefono).nationalDigits === client.telefonoNormalizado))
     .sort((a, b) => b.fecha.localeCompare(a.fecha) || b.horaInicio.localeCompare(a.horaInicio));
 
+  const alerts = await getClientAlerts(client.id);
+  const preferences = await getClientPreferences(client.id);
+  const tipsConfig = await getClientTipsConfig(client.id);
+
   return {
     client,
-    appointments: clientApts
+    appointments: clientApts,
+    alerts,
+    preferences,
+    tipsConfig
   };
 }
 
@@ -630,17 +723,19 @@ export async function createClient(clientData: Partial<Client> & { nombre: strin
   const id = clientData.id || crypto.randomUUID();
   const phoneNorm = normalizePhone(clientData.telefono);
   const emailNorm = normalizeEmail(clientData.email);
+  const cleanNombre = normalizePersonName(clientData.nombre);
+  const cleanApellido = normalizePersonName(clientData.apellido);
 
   const client: Client = {
     id,
-    nombre: clientData.nombre.trim(),
-    apellido: clientData.apellido.trim(),
+    nombre: cleanNombre,
+    apellido: cleanApellido,
     telefono: clientData.telefono.trim(),
     telefonoNormalizado: phoneNorm.nationalDigits,
-    email: clientData.email ? clientData.email.trim() : undefined,
+    email: clientData.email ? emailNorm : undefined,
     emailNormalizado: emailNorm || undefined,
-    nombreNormalizado: normalizeText(clientData.nombre),
-    apellidoNormalizado: normalizeText(clientData.apellido),
+    nombreNormalizado: normalizeText(cleanNombre),
+    apellidoNormalizado: normalizeText(cleanApellido),
     notasAdmin: clientData.notasAdmin || undefined,
     fechaAlta: clientData.fechaAlta || new Date().toISOString(),
     fechaUltimaVisita: clientData.fechaUltimaVisita || undefined,
@@ -704,10 +799,10 @@ export async function updateClient(id: string, updates: Partial<Client>): Promis
       if (currentRes.rows.length === 0) return null;
 
       const curr = currentRes.rows[0];
-      const newNombre = updates.nombre !== undefined ? updates.nombre.trim() : curr.nombre;
-      const newApellido = updates.apellido !== undefined ? updates.apellido.trim() : curr.apellido;
+      const newNombre = updates.nombre !== undefined ? normalizePersonName(updates.nombre) : curr.nombre;
+      const newApellido = updates.apellido !== undefined ? normalizePersonName(updates.apellido) : curr.apellido;
       const newTelefono = updates.telefono !== undefined ? updates.telefono.trim() : curr.telefono;
-      const newEmail = updates.email !== undefined ? updates.email.trim() : curr.email;
+      const newEmail = updates.email !== undefined ? normalizeEmail(updates.email) : curr.email;
 
       const phoneNorm = normalizePhone(newTelefono);
       const emailNorm = normalizeEmail(newEmail);
@@ -781,13 +876,20 @@ export async function updateClient(id: string, updates: Partial<Client>): Promis
   if (idx === -1) return null;
 
   const current = memoryDb.clients[idx];
+  const cleanNombre = updates.nombre !== undefined ? normalizePersonName(updates.nombre) : current.nombre;
+  const cleanApellido = updates.apellido !== undefined ? normalizePersonName(updates.apellido) : current.apellido;
+  const cleanEmail = updates.email !== undefined ? normalizeEmail(updates.email) : current.email;
+
   const updated: Client = {
     ...current,
     ...updates,
-    nombreNormalizado: updates.nombre ? normalizeText(updates.nombre) : current.nombreNormalizado,
-    apellidoNormalizado: updates.apellido ? normalizeText(updates.apellido) : current.apellidoNormalizado,
+    nombre: cleanNombre,
+    apellido: cleanApellido,
+    email: cleanEmail || undefined,
+    nombreNormalizado: normalizeText(cleanNombre),
+    apellidoNormalizado: normalizeText(cleanApellido),
     telefonoNormalizado: updates.telefono ? normalizePhone(updates.telefono).nationalDigits : current.telefonoNormalizado,
-    emailNormalizado: updates.email !== undefined ? normalizeEmail(updates.email) : current.emailNormalizado
+    emailNormalizado: cleanEmail ? normalizeEmail(cleanEmail) : current.emailNormalizado
   };
 
   memoryDb.clients[idx] = updated;
@@ -1044,13 +1146,15 @@ export async function dismissDuplicatePair(idA: string, idB: string): Promise<bo
 export async function getClientStats(): Promise<ClientStats> {
   const clients = await getClients({ activeOnly: true });
   const duplicates = await getPotentialDuplicatePairs();
+  const studioConfig = await getStudioConfig();
+  const diasInactividad = studioConfig.diasInactividadCliente || 60;
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-  const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const inactivityDaysAgo = new Date(Date.now() - diasInactividad * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
   const totalClientes = clients.length;
   const clientesNuevos = clients.filter(c => c.fechaAlta >= thirtyDaysAgo || (c.primerTurnoFecha && c.primerTurnoFecha >= thirtyDaysAgo)).length;
   const clientesRecurrentes = clients.filter(c => (c.totalTurnos || 0) >= 2).length;
-  const clientesInactivos = clients.filter(c => !c.fechaUltimaVisita || c.fechaUltimaVisita < sixtyDaysAgo).length;
+  const clientesInactivos = clients.filter(c => !c.fechaUltimaVisita || c.fechaUltimaVisita < inactivityDaysAgo).length;
   const clientesConProximosTurnos = clients.filter(c => Boolean(c.proximoTurno)).length;
 
   return {
@@ -1061,6 +1165,345 @@ export async function getClientStats(): Promise<ClientStats> {
     clientesConProximosTurnos,
     duplicadosPendientes: duplicates.length
   };
+}
+
+// ---------------------------------------------------------------------------
+// CLIENT ALERTS & ANTECEDENTES
+// ---------------------------------------------------------------------------
+
+export async function getClientAlerts(clienteId?: string, activeOnly = false): Promise<ClientAlert[]> {
+  if (isPostgresConnected && pgPool) {
+    try {
+      const conditions: string[] = [];
+      const values: any[] = [];
+      if (clienteId) {
+        values.push(clienteId);
+        conditions.push(`cliente_id = $${values.length}`);
+      }
+      if (activeOnly) {
+        conditions.push(`activa = true`);
+      }
+      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+      const query = `SELECT * FROM client_alerts ${where} ORDER BY created_at DESC`;
+      const res = await pgPool.query(query, values);
+      return res.rows.map(row => ({
+        id: row.id,
+        clienteId: row.cliente_id,
+        tipo: row.tipo as any,
+        descripcion: row.descripcion,
+        productoServicioRelacionado: row.producto_servicio_relacionado || undefined,
+        fecha: row.fecha,
+        severidad: row.severidad as any,
+        activa: Boolean(row.activa),
+        observaciones: row.observaciones || undefined,
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+      }));
+    } catch (err) {
+      console.error('Error fetching alerts from PostgreSQL:', err);
+    }
+  }
+
+  let alerts = [...(memoryDb.clientAlerts || [])];
+  if (clienteId) {
+    alerts = alerts.filter(a => a.clienteId === clienteId);
+  }
+  if (activeOnly) {
+    alerts = alerts.filter(a => a.activa !== false);
+  }
+  return alerts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function createClientAlert(alertData: Omit<ClientAlert, 'id' | 'createdAt' | 'updatedAt'>): Promise<ClientAlert> {
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const alert: ClientAlert = {
+    id,
+    clienteId: alertData.clienteId,
+    tipo: alertData.tipo,
+    descripcion: alertData.descripcion.trim(),
+    productoServicioRelacionado: alertData.productoServicioRelacionado?.trim() || undefined,
+    fecha: alertData.fecha || now.split('T')[0],
+    severidad: alertData.severidad || 'moderada',
+    activa: alertData.activa !== undefined ? alertData.activa : true,
+    observaciones: alertData.observaciones?.trim() || undefined,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  if (isPostgresConnected && pgPool) {
+    try {
+      await pgPool.query(`
+        INSERT INTO client_alerts (
+          id, cliente_id, tipo, descripcion, producto_servicio_relacionado,
+          fecha, severidad, activa, observaciones, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      `, [
+        alert.id,
+        alert.clienteId,
+        alert.tipo,
+        alert.descripcion,
+        alert.productoServicioRelacionado || null,
+        alert.fecha,
+        alert.severidad,
+        alert.activa,
+        alert.observaciones || null
+      ]);
+      return alert;
+    } catch (err) {
+      console.error('Error creating client alert in PostgreSQL:', err);
+    }
+  }
+
+  if (!memoryDb.clientAlerts) memoryDb.clientAlerts = [];
+  memoryDb.clientAlerts.unshift(alert);
+  saveLocalFileDb();
+  return alert;
+}
+
+export async function updateClientAlert(id: string, updates: Partial<ClientAlert>): Promise<ClientAlert | null> {
+  if (isPostgresConnected && pgPool) {
+    try {
+      const res = await pgPool.query('SELECT * FROM client_alerts WHERE id = $1', [id]);
+      if (res.rows.length === 0) return null;
+
+      await pgPool.query(`
+        UPDATE client_alerts
+        SET tipo = COALESCE($2, tipo),
+            descripcion = COALESCE($3, descripcion),
+            producto_servicio_relacionado = COALESCE($4, producto_servicio_relacionado),
+            fecha = COALESCE($5, fecha),
+            severidad = COALESCE($6, severidad),
+            activa = COALESCE($7, activa),
+            observaciones = COALESCE($8, observaciones),
+            updated_at = NOW()
+        WHERE id = $1
+      `, [
+        id,
+        updates.tipo || null,
+        updates.descripcion !== undefined ? updates.descripcion.trim() : null,
+        updates.productoServicioRelacionado !== undefined ? updates.productoServicioRelacionado : null,
+        updates.fecha || null,
+        updates.severidad || null,
+        updates.activa !== undefined ? updates.activa : null,
+        updates.observaciones !== undefined ? updates.observaciones : null
+      ]);
+
+      const updated = await pgPool.query('SELECT * FROM client_alerts WHERE id = $1', [id]);
+      const row = updated.rows[0];
+      return {
+        id: row.id,
+        clienteId: row.cliente_id,
+        tipo: row.tipo as any,
+        descripcion: row.descripcion,
+        productoServicioRelacionado: row.producto_servicio_relacionado || undefined,
+        fecha: row.fecha,
+        severidad: row.severidad as any,
+        activa: Boolean(row.activa),
+        observaciones: row.observaciones || undefined,
+        createdAt: new Date(row.created_at).toISOString(),
+        updatedAt: new Date(row.updated_at).toISOString()
+      };
+    } catch (err) {
+      console.error('Error updating alert in PostgreSQL:', err);
+    }
+  }
+
+  if (!memoryDb.clientAlerts) memoryDb.clientAlerts = [];
+  const alert = memoryDb.clientAlerts.find(a => a.id === id);
+  if (!alert) return null;
+  if (updates.tipo) alert.tipo = updates.tipo;
+  if (updates.descripcion !== undefined) alert.descripcion = updates.descripcion.trim();
+  if (updates.productoServicioRelacionado !== undefined) alert.productoServicioRelacionado = updates.productoServicioRelacionado;
+  if (updates.fecha) alert.fecha = updates.fecha;
+  if (updates.severidad) alert.severidad = updates.severidad;
+  if (updates.activa !== undefined) alert.activa = updates.activa;
+  if (updates.observaciones !== undefined) alert.observaciones = updates.observaciones;
+  alert.updatedAt = new Date().toISOString();
+  saveLocalFileDb();
+  return alert;
+}
+
+export async function deleteClientAlert(id: string): Promise<boolean> {
+  if (isPostgresConnected && pgPool) {
+    try {
+      const res = await pgPool.query('DELETE FROM client_alerts WHERE id = $1', [id]);
+      return (res.rowCount ?? 0) > 0;
+    } catch (err) {
+      console.error('Error deleting client alert from PostgreSQL:', err);
+    }
+  }
+
+  if (!memoryDb.clientAlerts) memoryDb.clientAlerts = [];
+  const idx = memoryDb.clientAlerts.findIndex(a => a.id === id);
+  if (idx === -1) return false;
+  memoryDb.clientAlerts.splice(idx, 1);
+  saveLocalFileDb();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// CLIENT PREFERENCES
+// ---------------------------------------------------------------------------
+
+export async function getClientPreferences(clienteId: string): Promise<ClientPreferences | null> {
+  if (isPostgresConnected && pgPool) {
+    try {
+      const res = await pgPool.query('SELECT * FROM client_preferences WHERE cliente_id = $1', [clienteId]);
+      if (res.rows.length > 0) {
+        const row = res.rows[0];
+        return {
+          id: row.id,
+          clienteId: row.cliente_id,
+          formaUnas: row.forma_unas || undefined,
+          largoHabitual: row.largo_habitual || undefined,
+          estilo: row.estilo || undefined,
+          coloresPreferidos: Array.isArray(row.colores_preferidos) ? row.colores_preferidos : (typeof row.colores_preferidos === 'string' ? JSON.parse(row.colores_preferidos) : []),
+          productosPreferidos: row.productos_preferidos || undefined,
+          productosEvitar: row.productos_evitar || undefined,
+          observacionesGenerales: row.observaciones_generales || undefined,
+          updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+        };
+      }
+      return null;
+    } catch (err) {
+      console.error('Error fetching client preferences from PostgreSQL:', err);
+    }
+  }
+
+  if (!memoryDb.clientPreferences) memoryDb.clientPreferences = [];
+  const found = memoryDb.clientPreferences.find(p => p.clienteId === clienteId);
+  return found || null;
+}
+
+export async function saveClientPreferences(clienteId: string, prefs: Partial<ClientPreferences>): Promise<ClientPreferences> {
+  const current = await getClientPreferences(clienteId);
+  const now = new Date().toISOString();
+  const id = current?.id || crypto.randomUUID();
+
+  const record: ClientPreferences = {
+    id,
+    clienteId,
+    formaUnas: prefs.formaUnas !== undefined ? prefs.formaUnas : current?.formaUnas,
+    largoHabitual: prefs.largoHabitual !== undefined ? prefs.largoHabitual : current?.largoHabitual,
+    estilo: prefs.estilo !== undefined ? prefs.estilo : current?.estilo,
+    coloresPreferidos: prefs.coloresPreferidos !== undefined ? prefs.coloresPreferidos : (current?.coloresPreferidos || []),
+    productosPreferidos: prefs.productosPreferidos !== undefined ? prefs.productosPreferidos : current?.productosPreferidos,
+    productosEvitar: prefs.productosEvitar !== undefined ? prefs.productosEvitar : current?.productosEvitar,
+    observacionesGenerales: prefs.observacionesGenerales !== undefined ? prefs.observacionesGenerales : current?.observacionesGenerales,
+    updatedAt: now
+  };
+
+  if (isPostgresConnected && pgPool) {
+    try {
+      await pgPool.query(`
+        INSERT INTO client_preferences (
+          id, cliente_id, forma_unas, largo_habitual, estilo,
+          colores_preferidos, productos_preferidos, productos_evitar,
+          observaciones_generales, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+        ON CONFLICT (cliente_id) DO UPDATE SET
+          forma_unas = EXCLUDED.forma_unas,
+          largo_habitual = EXCLUDED.largo_habitual,
+          estilo = EXCLUDED.estilo,
+          colores_preferidos = EXCLUDED.colores_preferidos,
+          productos_preferidos = EXCLUDED.productos_preferidos,
+          productos_evitar = EXCLUDED.productos_evitar,
+          observaciones_generales = EXCLUDED.observaciones_generales,
+          updated_at = NOW();
+      `, [
+        record.id,
+        record.clienteId,
+        record.formaUnas || null,
+        record.largoHabitual || null,
+        record.estilo || null,
+        JSON.stringify(record.coloresPreferidos || []),
+        record.productosPreferidos || null,
+        record.productosEvitar || null,
+        record.observacionesGenerales || null
+      ]);
+      return record;
+    } catch (err) {
+      console.error('Error saving client preferences in PostgreSQL:', err);
+    }
+  }
+
+  if (!memoryDb.clientPreferences) memoryDb.clientPreferences = [];
+  const idx = memoryDb.clientPreferences.findIndex(p => p.clienteId === clienteId);
+  if (idx !== -1) {
+    memoryDb.clientPreferences[idx] = record;
+  } else {
+    memoryDb.clientPreferences.push(record);
+  }
+  saveLocalFileDb();
+  return record;
+}
+
+// ---------------------------------------------------------------------------
+// CLIENT TIPS CONFIG
+// ---------------------------------------------------------------------------
+
+export async function getClientTipsConfig(clienteId: string): Promise<ClientTipConfigItem[]> {
+  if (isPostgresConnected && pgPool) {
+    try {
+      const res = await pgPool.query('SELECT * FROM client_tips_config WHERE cliente_id = $1 ORDER BY mano ASC, dedo ASC', [clienteId]);
+      return res.rows.map(row => ({
+        id: row.id,
+        clienteId: row.cliente_id,
+        mano: row.mano as any,
+        dedo: row.dedo as any,
+        tamanoTip: row.tamano_tip,
+        marcaModelo: row.marca_modelo || undefined,
+        observaciones: row.observaciones || undefined,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+      }));
+    } catch (err) {
+      console.error('Error fetching client tips config from PostgreSQL:', err);
+    }
+  }
+
+  if (!memoryDb.clientTipsConfig) memoryDb.clientTipsConfig = [];
+  return memoryDb.clientTipsConfig.filter(t => t.clienteId === clienteId);
+}
+
+export async function saveClientTipsConfig(clienteId: string, tips: ClientTipConfigItem[]): Promise<ClientTipConfigItem[]> {
+  const now = new Date().toISOString();
+
+  if (isPostgresConnected && pgPool) {
+    try {
+      await pgPool.query('DELETE FROM client_tips_config WHERE cliente_id = $1', [clienteId]);
+      for (const item of tips) {
+        const id = item.id || crypto.randomUUID();
+        await pgPool.query(`
+          INSERT INTO client_tips_config (id, cliente_id, mano, dedo, tamano_tip, marca_modelo, observaciones, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+        `, [
+          id,
+          clienteId,
+          item.mano,
+          item.dedo,
+          item.tamanoTip,
+          item.marcaModelo || null,
+          item.observaciones || null
+        ]);
+      }
+      return await getClientTipsConfig(clienteId);
+    } catch (err) {
+      console.error('Error saving client tips config to PostgreSQL:', err);
+    }
+  }
+
+  if (!memoryDb.clientTipsConfig) memoryDb.clientTipsConfig = [];
+  memoryDb.clientTipsConfig = memoryDb.clientTipsConfig.filter(t => t.clienteId !== clienteId);
+  const itemsToAdd = tips.map(t => ({
+    ...t,
+    id: t.id || crypto.randomUUID(),
+    clienteId,
+    updatedAt: now
+  }));
+  memoryDb.clientTipsConfig.push(...itemsToAdd);
+  saveLocalFileDb();
+  return itemsToAdd;
 }
 
 // ---------------------------------------------------------------------------

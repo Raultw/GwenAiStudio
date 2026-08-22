@@ -32,6 +32,62 @@ export interface Client {
   duplicadoRevisado?: boolean;
   fusionadoConId?: string; // ID del cliente principal en caso de fusión
   fechaFusion?: string;
+
+  // Alertas activas computadas
+  alertasActivasCount?: number;
+  alertasActivas?: ClientAlert[];
+}
+
+export type AlertSeverity = 'leve' | 'moderada' | 'alta' | 'critica';
+export type AlertType = 'alergia' | 'sensibilidad' | 'irritacion' | 'producto_evitar' | 'procedimiento' | 'precaucion' | 'otro';
+
+export interface ClientAlert {
+  id: string; // UUID
+  clienteId: string; // Foreign Key -> Client.id
+  tipo: AlertType;
+  descripcion: string;
+  productoServicioRelacionado?: string;
+  fecha: string; // YYYY-MM-DD
+  severidad: AlertSeverity;
+  activa: boolean;
+  observaciones?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ClientPreferences {
+  id: string; // UUID
+  clienteId: string; // Foreign Key -> Client.id
+  formaUnas?: string;
+  largoHabitual?: string;
+  estilo?: string;
+  coloresPreferidos?: string[];
+  productosPreferidos?: string;
+  productosEvitar?: string;
+  observacionesGenerales?: string;
+  updatedAt: string;
+}
+
+export type HandKey = 'izquierda' | 'derecha';
+export type FingerKey = 'pulgar' | 'indice' | 'medio' | 'anular' | 'menique';
+
+export interface ClientTipConfigItem {
+  id?: string;
+  clienteId: string;
+  mano: HandKey;
+  dedo: FingerKey;
+  tamanoTip: string; // e.g. "0".."9" o medida
+  marcaModelo?: string; // e.g. "Aprés Gel-X", "Soft Gel Curves", "Victoria Vynn"
+  observaciones?: string;
+  updatedAt?: string;
+}
+
+export interface ClientWithFullProfile {
+  client: Client;
+  appointments: Appointment[];
+  alerts: ClientAlert[];
+  preferences: ClientPreferences | null;
+  tipsConfig: ClientTipConfigItem[];
 }
 
 export interface DuplicatePair {
@@ -88,6 +144,7 @@ export interface Appointment {
   updatedAt: string;
   notasAdmin?: string;
   browserId?: string;
+  alertasCliente?: ClientAlert[]; // Alertas activas de la clienta asociadas al turno
 }
 
 export interface TimeSlot {
@@ -150,6 +207,7 @@ export interface StudioConfig {
   horariosBloqueados: Record<string, string[]>; // { '2026-08-25': ['09:00', '09:30'] }
   bloqueosDetallados?: BlockedTimeRange[];
   pinAdmin: string;
+  diasInactividadCliente?: number; // Días sin visitas para considerar cliente inactivo (default: 60)
 }
 
 export interface DashboardStats {

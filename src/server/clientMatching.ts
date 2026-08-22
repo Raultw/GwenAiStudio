@@ -15,11 +15,43 @@ export function normalizeText(text: string = ''): string {
 }
 
 /**
- * Normalizes email addresses: lowercase and trimmed.
+ * Normalizes person names (clients, etc.):
+ * - Trims leading and trailing spaces
+ * - Replaces letters with accents by letters without accents (á->a, é->e, etc.)
+ * - Replaces uppercase letters with lowercase
+ * - Collapses internal consecutive spaces
+ */
+export function normalizePersonName(name: string = ''): string {
+  return String(name || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Normalizes brand names (tips & soft gel brands):
+ * - Trims leading and trailing spaces
+ * - Replaces letters with accents by letters without accents
+ * - Replaces uppercase letters with lowercase
+ * - Collapses internal spaces
+ */
+export function normalizeBrandName(brand: string = ''): string {
+  return String(brand || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Normalizes email addresses: lowercase, trimmed, standard clean format.
  */
 export function normalizeEmail(email?: string): string {
   if (!email) return '';
-  return String(email).toLowerCase().trim();
+  return String(email).trim().toLowerCase();
 }
 
 /**

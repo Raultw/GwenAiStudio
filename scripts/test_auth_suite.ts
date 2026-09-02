@@ -1,41 +1,92 @@
-import dotenv from 'dotenv';
-dotenv.config();
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-import { 
-  initDatabase, 
-  memoryDb, 
-  createUser, 
-  updateUser, 
-  deleteUser, 
-  authenticateUser, 
-  checkAndExecuteSuperadminBootstrap, 
-  adminResetPassword, 
-  validatePasswordPolicy, 
-  generateSecureTemporaryPassword,
-  createSession, 
-  validateSessionToken, 
-  revokeSessionByToken, 
-  revokeAllUserSessions,
-  getUsers,
-  getUserById,
-  getUserByUsername
-} from '../src/server/db.js';
+// ---------------------------------------------------------------------------
+// ISOLATION SETUP (MUST EXECUTE BEFORE IMPORTING db.ts OR OTHER MODULES)
+// ---------------------------------------------------------------------------
+
+// 1. Capture original repository root and current working directory
+const originalCwd = process.cwd();
+const currentFile = fileURLToPath(import.meta.url);
+const scriptsDir = path.dirname(currentFile);
+const repoRoot = path.resolve(scriptsDir, '..');
+const serverTsPath = path.resolve(repoRoot, 'server.ts');
+
+// 2. Snapshot original environment variables
+const originalEnv: Record<string, string | undefined> = {
+  DATABASE_URL: process.env.DATABASE_URL,
+  POSTGRES_URL: process.env.POSTGRES_URL,
+  TEST_MEMORY_ONLY: process.env.TEST_MEMORY_ONLY,
+  NODE_ENV: process.env.NODE_ENV,
+};
+
+const originalBootstrapEnv: Record<string, string | undefined> = {};
+for (const key of Object.keys(process.env)) {
+  if (key.startsWith('SUPERADMIN_BOOTSTRAP_')) {
+    originalBootstrapEnv[key] = process.env[key];
+    delete process.env[key];
+  }
+}
+
+// 3. Neutralize database connections and set test isolation flags
+delete process.env.DATABASE_URL;
+delete process.env.POSTGRES_URL;
+process.env.TEST_MEMORY_ONLY = 'true';
+process.env.NODE_ENV = 'test';
+
+// 4. Create isolated temporary directory in os.tmpdir() for cwd
+const tempDirPrefix = path.join(os.tmpdir(), 'gwen-auth-suite-');
+const tempDir = fs.mkdtempSync(tempDirPrefix);
+const normalizedTempDir = path.resolve(tempDir);
+const normalizedTmpRoot = path.resolve(os.tmpdir());
+
+if (!normalizedTempDir.startsWith(normalizedTmpRoot)) {
+  throw new Error(`Invalid temp directory path: ${tempDir}`);
+}
+
+// 5. Change current working directory to tempDir BEFORE importing db.js
+// This guarantees db.ts DATA_DIR/DATA_FILE fallback and dotenv point to tempDir
+process.chdir(tempDir);
+
+// ---------------------------------------------------------------------------
+// TEST SUITE RUNNER
+// ---------------------------------------------------------------------------
 
 async function runAuthSuite() {
-  console.log('======================================================');
-  console.log('🧪 GWEN NAILS - COMPREHENSIVE AUTH TEST SUITE (52 TESTS)');
-  console.log('======================================================');
-
-  // Force isolated memory/file db fixtures for testing
-  delete process.env.DATABASE_URL;
-  process.env.TEST_MEMORY_ONLY = 'true';
-
-  await initDatabase();
-
   let passed = 0;
   let failed = 0;
 
-  async function assertTest(name: string, fn: () => Promise<void> | void) {
+  try {
+    // Dynamic import of db.js only AFTER isolation environment is active
+    const { 
+      initDatabase, 
+      memoryDb, 
+      createUser, 
+      updateUser, 
+      deleteUser, 
+      authenticateUser, 
+      checkAndExecuteSuperadminBootstrap, 
+      adminResetPassword, 
+      validatePasswordPolicy, 
+      generateSecureTemporaryPassword,
+      createSession, 
+      validateSessionToken, 
+      revokeSessionByToken, 
+      revokeAllUserSessions,
+      getUsers,
+      getUserById,
+      getUserByUsername
+    } = await import('../src/server/db.js');
+
+    console.log('======================================================');
+    console.log('🧪 GWEN NAILS - COMPREHENSIVE AUTH TEST SUITE (52 TESTS)');
+    console.log('======================================================');
+
+    await initDatabase();
+
+    async function assertTest(name: string, fn: () => Promise<void> | void) {
     try {
       await fn();
       passed++;
@@ -424,7 +475,7 @@ async function runAuthSuite() {
   // 51. Absence of PIN endpoint & PIN fallback
   await assertTest('51. Absence of PIN endpoint', async () => {
     // PIN endpoints were removed from server.ts
-    const serverCode = (await import('fs')).readFileSync('./server.ts', 'utf8');
+    const serverCode = fs.readFileSync(serverTsPath, 'utf8');
     if (serverCode.includes('verify-pin')) {
       throw new Error('PIN endpoint or code still present in server.ts');
     }
@@ -432,7 +483,7 @@ async function runAuthSuite() {
 
   // 52. Absence of hardcoded credentials
   await assertTest('52. Absence of hardcoded credentials', async () => {
-    const serverCode = (await import('fs')).readFileSync('./server.ts', 'utf8');
+    const serverCode = fs.readFileSync(serverTsPath, 'utf8');
     if (serverCode.includes('"1234"') || serverCode.includes("'1234'")) {
       throw new Error('Hardcoded PIN 1234 found in server.ts');
     }
@@ -441,6 +492,48 @@ async function runAuthSuite() {
   console.log('======================================================');
   console.log(`📊 RESULTS: Passed: ${passed}, Failed: ${failed}`);
   console.log('======================================================');
+  } finally {
+    // -----------------------------------------------------------------------
+    // RESTORATION & CLEANUP
+    // -----------------------------------------------------------------------
+
+    // 1. Restore original working directory
+    try {
+      process.chdir(originalCwd);
+    } catch (cwdErr) {
+      console.error('Error restoring original working directory:', cwdErr);
+    }
+
+    // 2. Restore environment variables
+    for (const [key, val] of Object.entries(originalEnv)) {
+      if (val === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = val;
+      }
+    }
+
+    // 3. Clear bootstrap env variables and restore original snapshot
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('SUPERADMIN_BOOTSTRAP_')) {
+        delete process.env[key];
+      }
+    }
+    for (const [key, val] of Object.entries(originalBootstrapEnv)) {
+      if (val !== undefined) {
+        process.env[key] = val;
+      }
+    }
+
+    // 4. Safely remove validated own temporary directory
+    if (tempDir && normalizedTempDir.startsWith(normalizedTmpRoot) && fs.existsSync(tempDir)) {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch (cleanupErr) {
+        console.error('Warning: Failed to clean tempDir:', cleanupErr);
+      }
+    }
+  }
 
   if (failed > 0) {
     process.exit(1);
@@ -449,4 +542,7 @@ async function runAuthSuite() {
   }
 }
 
-runAuthSuite();
+runAuthSuite().catch(err => {
+  console.error('Fatal error running auth test suite:', err);
+  process.exit(1);
+});

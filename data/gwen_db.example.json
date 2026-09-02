@@ -1,0 +1,293 @@
+{
+  "services": [
+    {
+      "id": "1",
+      "nombre": "Manicura Clásica & Rusa",
+      "slug": "manicura-clasica",
+      "categoria": "cuidado",
+      "descripcion": "Limpieza profunda combinada, repujado y corte prolijo de cutículas, limado y nutrición para manos impecables.",
+      "duracionMinutos": 45,
+      "precio": 14000,
+      "esPopular": false,
+      "icono": "💅",
+      "detalles": [
+        "Técnica rusa combinada",
+        "Nutrición profunda con aceites orgánicos",
+        "Esmaltado tradicional o brillo protector",
+        "Exfoliación suave de manos"
+      ],
+      "activo": true
+    },
+    {
+      "id": "2",
+      "nombre": "Esmaltado Semipermanente",
+      "slug": "semipermanente",
+      "categoria": "esmaltado",
+      "descripcion": "Color brillante y de alta adherencia que se mantiene intacto por 2 a 3 semanas. Gran variedad de tonos de temporada.",
+      "duracionMinutos": 60,
+      "precio": 18000,
+      "esPopular": false,
+      "icono": "✨",
+      "detalles": [
+        "Preparación rusa de cutículas",
+        "Capa base niveladora fortalecedora",
+        "Más de 80 tonos premium disponibles",
+        "Top coat ultra brillante o mate satinado"
+      ],
+      "activo": true
+    },
+    {
+      "id": "3",
+      "nombre": "Soft Gel System",
+      "slug": "soft-gel",
+      "categoria": "esculpidas",
+      "descripcion": "Extensiones ultralivianas de gel que cuidan tu uña natural con máxima resistencia y flexibilidad. El método estrella.",
+      "duracionMinutos": 90,
+      "precio": 26000,
+      "esPopular": true,
+      "icono": "🌸",
+      "detalles": [
+        "Tip completo 100% soak-off gel",
+        "Largo y forma a elección (Almond, Coffin, Square, Stiletto)",
+        "Durabilidad de 3 a 4 semanas sin levantamientos",
+        "Incluye esmaltado liso a elección"
+      ],
+      "activo": true
+    },
+    {
+      "id": "4",
+      "nombre": "Kapping Gel Fortalecedor",
+      "slug": "kapping",
+      "categoria": "cuidado",
+      "descripcion": "Fino recubrimiento en gel o acrigel sobre la uña natural para evitar quiebres y permitir que crezca fuerte y sana.",
+      "duracionMinutos": 75,
+      "precio": 22000,
+      "esPopular": false,
+      "icono": "💎",
+      "detalles": [
+        "Ideal para uñas frágiles, quebradizas o escamadas",
+        "Nivelación y arquitectura perfecta",
+        "Refuerzo estructural sin grosor excesivo",
+        "Incluye esmaltado semipermanente"
+      ],
+      "activo": true
+    },
+    {
+      "id": "5",
+      "nombre": "Nail Art & Diseños Exclusivos",
+      "slug": "nail-art",
+      "categoria": "arte",
+      "descripcion": "Creaciones artísticas a mano alzada, efectos chrome, foil dorado, degradados aura, flores y pedrería fina.",
+      "duracionMinutos": 90,
+      "precio": 25000,
+      "esPopular": true,
+      "icono": "🎨",
+      "detalles": [
+        "Mano alzada personalizada",
+        "Tendencias: Chrome, Glazed Donut, Aura, French 3D",
+        "Aplicación de foil, microbrillos y cristalería",
+        "Asesoramiento estético personalizado"
+      ],
+      "activo": true
+    },
+    {
+      "id": "6",
+      "nombre": "Esculpidas en Polygel / Acrílico",
+      "slug": "esculpidas",
+      "categoria": "esculpidas",
+      "descripcion": "Construcción escultural con molde milimétrico para formas impecables, resistencia superior y máximo detalle.",
+      "duracionMinutos": 120,
+      "precio": 32000,
+      "esPopular": false,
+      "icono": "👑",
+      "detalles": [
+        "Estructura personalizada con moldes",
+        "Control de apex y curva C perfecta",
+        "Máxima resistencia para uñas exigentes",
+        "Incluye esmaltado semipermanente"
+      ],
+      "activo": true
+    },
+    {
+      "id": "7",
+      "nombre": "Retiro Seguro & Tratamiento",
+      "slug": "retiro",
+      "categoria": "cuidado",
+      "descripcion": "Remoción profesional no invasiva mediante torno de precisión o método soak-off, preservando la placa ungueal.",
+      "duracionMinutos": 45,
+      "precio": 10000,
+      "esPopular": false,
+      "icono": "🔄",
+      "detalles": [
+        "Retiro suave sin dañar las capas de la uña",
+        "Tratamiento de queratina y calcio",
+        "Pulido y sellado nutritivo",
+        "Recomendado para descansos o cambio de técnica"
+      ],
+      "activo": true
+    }
+  ],
+  "appointments": [],
+  "clients": [],
+  "clientAlerts": [],
+  "clientPreferences": [],
+  "clientTipsConfig": [],
+  "config": {
+    "nombreEstudio": "Gwen Nails Studio",
+    "subtitulo": "Donde tus manos cuentan tu historia",
+    "direccion": "Gorriti 5540, Palermo Hollywood, CABA",
+    "telefono": "011-15682386",
+    "whatsapp": "5491115682386",
+    "instagram": "gwennails",
+    "email": "contacto@gwennails.com",
+    "horariosPorDia": {
+      "lunes": { "activo": true, "apertura": "09:00", "cierre": "19:00" },
+      "martes": { "activo": true, "apertura": "09:00", "cierre": "19:00" },
+      "miercoles": { "activo": true, "apertura": "09:00", "cierre": "19:00" },
+      "jueves": { "activo": true, "apertura": "09:00", "cierre": "19:00" },
+      "viernes": { "activo": true, "apertura": "09:00", "cierre": "19:00" },
+      "sabado": { "activo": true, "apertura": "09:00", "cierre": "17:00" },
+      "domingo": { "activo": false, "apertura": "10:00", "cierre": "14:00" }
+    },
+    "intervaloMinutos": 30,
+    "bufferMinutos": 0,
+    "pinAdmin": "1234",
+    "diasInactividadCliente": 60,
+    "minTurnosRecurrente": 2
+  },
+  "users": [],
+  "professionals": [
+    {
+      "id": "prof-default-1",
+      "nombre": "Gwen",
+      "apellido": "Nails",
+      "email": "contacto@gwennails.com",
+      "telefono": "011-15682386",
+      "fotoUrl": "",
+      "colorAgenda": "#8E4455",
+      "titulo": "Master Nail Artist & Fundadora",
+      "activo": true,
+      "serviciosIds": ["1", "2", "3", "4", "5", "6", "7"],
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    }
+  ],
+  "professionalServices": [
+    { "id": "ps-prof-default-1-1", "profesionalId": "prof-default-1", "servicioId": "1", "activo": true, "createdAt": "2025-01-01T00:00:00.000Z" },
+    { "id": "ps-prof-default-1-2", "profesionalId": "prof-default-1", "servicioId": "2", "activo": true, "createdAt": "2025-01-01T00:00:00.000Z" },
+    { "id": "ps-prof-default-1-3", "profesionalId": "prof-default-1", "servicioId": "3", "activo": true, "createdAt": "2025-01-01T00:00:00.000Z" },
+    { "id": "ps-prof-default-1-4", "profesionalId": "prof-default-1", "servicioId": "4", "activo": true, "createdAt": "2025-01-01T00:00:00.000Z" },
+    { "id": "ps-prof-default-1-5", "profesionalId": "prof-default-1", "servicioId": "5", "activo": true, "createdAt": "2025-01-01T00:00:00.000Z" },
+    { "id": "ps-prof-default-1-6", "profesionalId": "prof-default-1", "servicioId": "6", "activo": true, "createdAt": "2025-01-01T00:00:00.000Z" },
+    { "id": "ps-prof-default-1-7", "profesionalId": "prof-default-1", "servicioId": "7", "activo": true, "createdAt": "2025-01-01T00:00:00.000Z" }
+  ],
+  "schedules": [
+    {
+      "id": "sched-local-default",
+      "alcance": "local",
+      "fechaVigencia": "2020-01-01",
+      "dias": {
+        "lunes": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "martes": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "miercoles": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "jueves": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "viernes": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "sabado": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "17:00" }] },
+        "domingo": { "abierto": false, "intervalos": [] }
+      },
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "sched-prof-default-1",
+      "alcance": "profesional",
+      "profesionalId": "prof-default-1",
+      "fechaVigencia": "2020-01-01",
+      "dias": {
+        "lunes": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "martes": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "miercoles": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "jueves": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "viernes": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "19:00" }] },
+        "sabado": { "abierto": true, "intervalos": [{ "inicio": "09:00", "fin": "17:00" }] },
+        "domingo": { "abierto": false, "intervalos": [] }
+      },
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    }
+  ],
+  "availabilityExceptions": [],
+  "notificationLogs": [],
+  "promotions": [
+    {
+      "id": "promo-bienvenida-15",
+      "codigo": "BIENVENIDA15",
+      "nombre": "15% OFF Primera Visita",
+      "descripcion": "Descuento de bienvenida aplicable a todos los servicios para nuevas clientas.",
+      "activo": true,
+      "tipoDescuento": "porcentaje",
+      "valorDescuento": 15,
+      "fechaInicio": "2025-01-01",
+      "fechaVencimiento": null,
+      "limiteTotalUsos": null,
+      "limiteUsoPorCliente": 1,
+      "periodoReutilizacionDias": null,
+      "serviciosAplicables": ["todos"],
+      "montoMinimo": null,
+      "usosActuales": 0,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "promo-softgel-3000",
+      "codigo": "SOFTGEL3000",
+      "nombre": "$3.000 OFF en Soft Gel System",
+      "descripcion": "Descuento de $3.000 aplicable al servicio estrella de extensiones Soft Gel.",
+      "activo": true,
+      "tipoDescuento": "monto_fijo",
+      "valorDescuento": 3000,
+      "fechaInicio": "2025-01-01",
+      "fechaVencimiento": null,
+      "limiteTotalUsos": 50,
+      "limiteUsoPorCliente": 2,
+      "periodoReutilizacionDias": 30,
+      "serviciosAplicables": ["3"],
+      "montoMinimo": 20000,
+      "usosActuales": 0,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    }
+  ],
+  "promotionUsages": [],
+  "clientBenefits": [],
+  "benefitTemplates": [
+    {
+      "id": "template-comp-20",
+      "nombrePublico": "20% de descuento en tu próxima visita",
+      "descripcionPublica": "Descuento de cortesía para tu próxima cita",
+      "tipoDescuento": "porcentaje",
+      "valorDescuento": 20,
+      "vigenciaDias": 30,
+      "serviciosAplicables": ["todos"],
+      "montoMinimo": null,
+      "activo": true,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    },
+    {
+      "id": "template-comp-5000",
+      "nombrePublico": "$5.000 de descuento en tu próxima visita",
+      "descripcionPublica": "Monto fijo de compensación para tu próxima cita",
+      "tipoDescuento": "monto_fijo",
+      "valorDescuento": 5000,
+      "vigenciaDias": 60,
+      "serviciosAplicables": ["todos"],
+      "montoMinimo": null,
+      "activo": true,
+      "createdAt": "2025-01-01T00:00:00.000Z",
+      "updatedAt": "2025-01-01T00:00:00.000Z"
+    }
+  ],
+  "sessions": [],
+  "auditLogs": []
+}

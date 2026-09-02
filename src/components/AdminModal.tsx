@@ -355,8 +355,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const handleLogout = async () => {
     authEpochRef.current += 1;
     dataEpochRef.current += 1;
+    const currentEpoch = authEpochRef.current;
     try {
       const res = await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      if (authEpochRef.current !== currentEpoch) return;
       if (res.ok) {
         setIsAuthenticated(false);
         setCurrentUser(null);
@@ -369,9 +371,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         showAdminToast('Sesión cerrada correctamente.', 'info');
       } else {
         const data = await res.json().catch(() => ({}));
+        if (authEpochRef.current !== currentEpoch) return;
         showAdminToast(data.error || 'No se pudo revocar la sesión en el servidor.', 'error');
       }
     } catch (err) {
+      if (authEpochRef.current !== currentEpoch) return;
       showAdminToast('Error de conexión al cerrar sesión en el servidor.', 'error');
     }
   };
@@ -411,6 +415,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
     }
 
     setIsChangingPassword(true);
+    const passwordEpoch = authEpochRef.current;
     try {
       const res = await fetch('/api/auth/password-change', {
         method: 'POST',
@@ -424,6 +429,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
       const data = await res.json().catch(() => ({}));
 
+      if (authEpochRef.current !== passwordEpoch) return;
+      setIsChangingPassword(false);
       if (res.ok && data?.success) {
         // Backend revokes all sessions on password change
         authEpochRef.current += 1;
@@ -443,9 +450,10 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         setPasswordChangeError(data.error || 'Error al actualizar la contraseña.');
       }
     } catch (err) {
+      if (authEpochRef.current !== passwordEpoch) return;
       setPasswordChangeError('Error de conexión con el servidor.');
     } finally {
-      setIsChangingPassword(false);
+      if (authEpochRef.current === passwordEpoch) setIsChangingPassword(false);
     }
   };
 
@@ -471,12 +479,15 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         return;
       }
 
-      if (aptRes.ok) setAppointments(await aptRes.json());
-      if (srvRes.ok) setServices(await srvRes.json());
-      if (profRes.ok) setProfessionals(await profRes.json());
-      if (cfgRes.ok) setConfig(await cfgRes.json());
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (dbRes.ok) setDbStatus(await dbRes.json());
+      const responses = [aptRes, srvRes, profRes, cfgRes, statsRes, dbRes];
+      const bodies = await Promise.all(responses.map(res => res.ok ? res.json() : null));
+      if (dataEpochRef.current !== currentEpoch) return;
+      if (aptRes.ok) setAppointments(bodies[0]);
+      if (srvRes.ok) setServices(bodies[1]);
+      if (profRes.ok) setProfessionals(bodies[2]);
+      if (cfgRes.ok) setConfig(bodies[3]);
+      if (statsRes.ok) setStats(bodies[4]);
+      if (dbRes.ok) setDbStatus(bodies[5]);
     } catch (err) {
       if (dataEpochRef.current !== currentEpoch) return;
       console.error('Error fetching admin data:', err);
@@ -493,6 +504,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setDateFilter(getTodayDateString());
       setSearchQuery('');
       setIsCheckingAuth(true);
+      setIsAuthenticated(false);
+      dataEpochRef.current += 1;
 
       authEpochRef.current += 1;
       const currentEpoch = authEpochRef.current;
@@ -504,6 +517,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           if (authEpochRef.current !== currentEpoch) return;
           if (res.ok) {
             const data = await res.json().catch(() => ({}));
+            if (authEpochRef.current !== currentEpoch) return;
             if (data?.user) {
               setIsAuthenticated(true);
               setCurrentUser(data.user);
@@ -539,14 +553,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       authEpochRef.current += 1;
       dataEpochRef.current += 1;
       setIsCheckingAuth(false);
+      setIsLoading(false);
+      setIsChangingPassword(false);
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen && isAuthenticated && !currentUser?.mustChangePassword) {
+    if (isOpen && !isCheckingAuth && isAuthenticated && !currentUser?.mustChangePassword) {
       loadAdminData();
     }
-  }, [isOpen, isAuthenticated, currentUser?.mustChangePassword]);
+  }, [isOpen, isCheckingAuth, isAuthenticated, currentUser?.mustChangePassword]);
 
   // Change Appointment Status
   const handleUpdateStatus = async (

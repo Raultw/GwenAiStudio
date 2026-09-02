@@ -35,7 +35,7 @@ function isValidBenefitTemplate(item: any): item is BenefitTemplate {
   if (typeof item.valorDescuento !== 'number' || isNaN(item.valorDescuento) || !isFinite(item.valorDescuento) || item.valorDescuento <= 0) return false;
   if (item.tipoDescuento === 'porcentaje' && item.valorDescuento > 100) return false;
   if (typeof item.vigenciaDias !== 'number' || !Number.isInteger(item.vigenciaDias) || item.vigenciaDias <= 0) return false;
-  if (!Array.isArray(item.serviciosAplicables)) return false;
+  if (!Array.isArray(item.serviciosAplicables) || !item.serviciosAplicables.every((id: unknown) => typeof id === 'string')) return false;
   if (typeof item.activo !== 'boolean') return false;
   if (item.descripcionPublica !== undefined && item.descripcionPublica !== null && typeof item.descripcionPublica !== 'string') return false;
   if (item.montoMinimo !== undefined && item.montoMinimo !== null && (typeof item.montoMinimo !== 'number' || isNaN(item.montoMinimo) || !isFinite(item.montoMinimo) || item.montoMinimo < 0)) return false;
@@ -562,15 +562,15 @@ export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ se
       ) : fetchError ? (
         <div className="bg-white p-8 rounded-xl border border-rose-200 text-center shadow-2xs">
           <AlertCircle className="w-8 h-8 mx-auto text-rose-500 mb-2" />
-          <p className="text-sm font-semibold text-rose-800">Error al cargar plantillas</p>
+          <p className="text-sm font-semibold text-rose-800">{errorKind === 'forbidden' ? 'Acceso restringido' : 'Error al cargar plantillas'}</p>
           <p className="text-xs text-rose-600 mt-1 mb-4">{fetchError}</p>
-          <button
+          {errorKind !== 'forbidden' && errorKind !== 'must_change_password' && <button
             type="button"
             onClick={fetchTemplates}
             className="px-4 py-2 bg-[#8E4455] text-white rounded-xl text-xs hover:bg-[#783645] cursor-pointer"
           >
             Reintentar
-          </button>
+          </button>}
         </div>
       ) : filteredTemplates.length === 0 ? (
         <div className="bg-white p-12 rounded-xl border border-[#E8DCD5] text-center shadow-2xs">

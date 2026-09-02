@@ -1,4 +1,10 @@
 # Informe de Revisión Focalizada: AUTH-002
+## Estado posterior — implementación parcial y revisión
+
+El pedido amplio a Antigravity agotó cinco minutos dejando dos componentes editados. Coordinador preservó checkpoint 1ef5f17 y corrigió mínimo de contraseña a 12, preservación literal de espacios de contraseñas, rechazo de null en catálogo, servicios de tipo string, 403 sin reintento inútil y guardas posteriores a lectura de bodies. Antigravity quedó bloqueado por lectura en el pedido reducido; esos ajustes fueron completados por el coordinador, no se atribuyen al agente.
+
+QA local Chrome con API simulada, red externa bloqueada y sin credenciales: cinco casos aprobados (catálogo vacío, profesional sin pestaña, pantalla de cambio obligatorio sin cargas administrativas, lista con null rechazada, 403 mostrado). TypeScript global sigue fallando únicamente por node-fetch ausente en otra suite. Pendientes envío de cambio de contraseña, carreras de respuestas y revisión final; no listo para merge. Ninguna modificación de backend ni despliegue. Informe inicial conservado debajo como antecedente, no estado vigente.
+
 **Proyecto:** Gwen Nails Studio — Sistema de Gestión y Catálogo de Beneficios  
 **Fase:** Diagnóstico y Análisis Técnico Previo a Modificación de Código  
 **Fecha de Análisis:** 02 de Septiembre de 2026  

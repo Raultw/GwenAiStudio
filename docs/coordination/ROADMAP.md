@@ -28,6 +28,7 @@ Para una funcionalidad de la aplicación, cerrado requiere revisión aprobada, i
 - 2: SEC-001 dd360bbc; SEC-002 52db6fd, 39 pruebas aisladas. TypeScript global pendiente por node-fetch ausente en test_booking_concurrency.ts. No confundir .gitignore con eliminación de información ya versionada.
 - 3: política 86c5fd6, checklist ee562e3, persistencia 645d9b0 y validaciones 6df6715. Pruebas: 12 casos puros, navegador/API simulada, 8 casos de persistencia y 17 del handler. No acredita integración SQL ni despliegue.
 - 4: tasks/AUTH-002-transaction-design.md.
+- Avance parcial 4: 101cb4a rechaza fallback de sesión a memoria tras fallo SQL; cinco pruebas aisladas aprobadas. No constituye cierre del ítem.
 - 5–6: AUTH-002 y tasks/AUTH-002-account-followup.md. Los defectos históricos de sesión/catálogo no se reprodujeron en el QA base de Render; aún faltan escenarios y validar commit desplegado.
 - 7: BOOK-003; 8: CANCEL-004. El resto conserva decisiones del documento maestro, pendiente de convertir a tareas acotadas antes de implementar.
 

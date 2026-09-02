@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+AUTH-002 avance local: cinco casos de Chrome con API simulada aprobados (vacío, profesional, pantalla de cambio obligatorio, null inválido, 403). Implementación parcial preservada tras timeout de Antigravity; revisor corrigió validación y guardas de respuestas. Pendientes envío de cambio de contraseña y carreras; sin merge/despliegue. Tsc sigue bloqueado por dependencia ausente en suite ajena.
+
 AUTH-002 revisión posterior: falta una vista de cambio obligatorio de contraseña y permisos visuales de catálogo; implementación focalizada encargada a Antigravity junto con rechazo explícito de respuestas malformadas y control de respuestas obsoletas. Backend y reglas sin cambios. Diagnóstico estático publicado en 2cb426d, no confundir con pruebas dinámicas ni implementación completada.
 
 AUTH-002, QA navegador real 2026-09-02: login, recarga completa/reapertura del panel, catálogo y creación de plantilla funcionan con la cuenta nueva. Plantilla QA desactivada y sesión de prueba cerrada. No reproducidos fallos históricos; pendientes expiración, roles, errores y revisión de carreras. Ver coordination/reviews/AUTH-002-browser.md. No confundir esta evidencia con corrección de código o SHA desplegado verificado.

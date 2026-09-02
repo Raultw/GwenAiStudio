@@ -58,6 +58,8 @@ import {
   evaluateClientMatch, 
   stringSimilarity 
 } from './clientMatching.js';
+import { validatePasswordPolicy } from '../utils/passwordPolicy.js';
+
 
 // Default initial services
 export const defaultServices: Service[] = [
@@ -264,36 +266,7 @@ export function verifyPassword(password: string, salt: string, expectedHash: str
   }
 }
 
-export function validatePasswordPolicy(pass: string): { valid: boolean; error?: string } {
-  if (!pass || typeof pass !== 'string') {
-    return { valid: false, error: 'Contraseña requerida.' };
-  }
-  if (/^\s+$/.test(pass)) {
-    return { valid: false, error: 'La contraseña no puede consistir únicamente en espacios.' };
-  }
-  if (pass.length < 8) {
-    return { valid: false, error: 'La contraseña debe tener al menos 8 caracteres.' };
-  }
-  if (pass.length > 16) {
-    return { valid: false, error: 'La contraseña no puede exceder los 16 caracteres.' };
-  }
-  if (!/[a-z]/.test(pass)) {
-    return { valid: false, error: 'La contraseña debe contener al menos una letra minúscula.' };
-  }
-  if (!/[A-Z]/.test(pass)) {
-    return { valid: false, error: 'La contraseña debe contener al menos una letra mayúscula.' };
-  }
-  if (!/[0-9]/.test(pass)) {
-    return { valid: false, error: 'La contraseña debe contener al menos un número.' };
-  }
-  if (!/[^a-zA-Z0-9\s]/.test(pass)) {
-    return { valid: false, error: 'La contraseña debe contener al menos un símbolo especial.' };
-  }
-  if (/(?:0123|1234|2345|3456|4567|5678|6789|9876|8765|7654|6543|5432|4321|3210)/.test(pass)) {
-    return { valid: false, error: 'La contraseña no puede contener secuencias de cuatro números consecutivos.' };
-  }
-  return { valid: true };
-}
+export { validatePasswordPolicy };
 
 export function generateSecureTemporaryPassword(): string {
   const lowercase = 'abcdefghijklmnopqrstuvwxyz';

@@ -5,11 +5,11 @@ Estado inicial: 2026-09-02. Esta rama contiene documentación; no cambia la apli
 | ID | Prioridad | Estado | Responsable | Objetivo |
 |---|---|---|---|---|
 | SEC-001 | Alta | REVIEW | Antigravity | Correcciones aprobadas en `dd360bbc501edef5f13531f8facebbd9299cb4a9`; pendiente de integración autorizada. Ver `reviews/SEC-001-final.md`. |
-| AUTH-002 | Alta | DRAFT | Sin asignar | Reproducir y corregir restauración de sesión y 401 de tipos de beneficio. |
+| AUTH-002 | Alta | READY | Antigravity | Reproducir y corregir sesión al recargar, permisos de superadmin y carga/creación de tipos de beneficio. QA desplegado pendiente de acceso seguro. |
 | BOOK-003 | Media | DRAFT | Sin asignar | Verificar confirmación por email, código y clave de gestión de reserva. |
 | CANCEL-004 | Media | DRAFT | Sin asignar | Revisar cancelación individual administrativa y compensación opcional. |
 
-Solo SEC-001 está autorizada para trabajar en esta fase, incluidas las correcciones de revisión dentro de su alcance. Las restantes son antecedentes, no permisos de implementación.
+El propietario retomó el plan el 2026-09-02: AUTH-002 queda autorizada como primera etapa. BOOK-003 y CANCEL-004 se mantienen secuenciales pendientes de preparación de alcance tras la revisión anterior. Documento maestro mantenible: [Contexto y Arquitectura](../Gwen_Nails_Contexto_y_Arquitectura.md), sección 22. No iniciar tareas posteriores ni ampliar permisos por antecedentes históricos.
 
 ## Evidencia y límites
 

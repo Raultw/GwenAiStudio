@@ -3704,28 +3704,195 @@ export async function deleteUser(id: string): Promise<boolean> {
   return true;
 }
 
-export async function adminResetPassword(targetUserId: string, newPassword: string, actorId?: string, actorName?: string): Promise<User | null> {
+export async function adminResetPassword(
+  targetUserId: string,
+  newPassword: string,
+  actorId?: string,
+  actorName?: string
+): Promise<User | null> {
+  // 1. Validar nueva contraseña con política actual
   const policy = validatePasswordPolicy(newPassword);
   if (!policy.valid) {
     throw new Error(policy.error);
   }
 
-  const updated = await updateUser(targetUserId, {
-    password: newPassword,
-    mustChangePassword: true
-  });
+  // 2. PostgreSQL: transacción atómica aislada en cliente dedicado
+  if (isPostgresConnected && pgPool) {
+    let client;
+    try {
+      client = await pgPool.connect();
+    } catch (connectErr) {
+      throw new Error('No se pudo restablecer la contraseña.');
+    }
 
-  if (updated) {
-    await createAuditLog({
-      actorId,
-      actorName,
-      targetUserId,
-      evento: 'admin_password_reset',
-      metadata: { targetUserId }
-    });
+    try {
+      await client.query('BEGIN');
+
+      // Bloqueo pesimista de fila users
+      const userRes = await client.query(
+        `SELECT id, username, email, rol, profesional_id, activo, nombre, must_change_password, created_at, updated_at
+         FROM users
+         WHERE id = $1
+         FOR UPDATE`,
+        [targetUserId]
+      );
+
+      if (userRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return null;
+      }
+
+      const { hash, salt } = hashPassword(newPassword);
+
+      // Actualizar estrictamente hash, salt, must_change_password y updated_at
+      const updateRes = await client.query(
+        `UPDATE users
+         SET password_hash = $2,
+             salt = $3,
+             must_change_password = true,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, username, email, rol, profesional_id, activo, nombre, must_change_password, created_at, updated_at`,
+        [targetUserId, hash, salt]
+      );
+
+      // Revocar sesiones activas existentes
+      await client.query(
+        `UPDATE sessions
+         SET revoked_at = NOW()
+         WHERE user_id = $1 AND revoked_at IS NULL`,
+        [targetUserId]
+      );
+
+      // Registrar auditoría con datos de actor y metadata acotada estrictamente a targetUserId
+      const auditId = `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+      await client.query(
+        `INSERT INTO audit_logs (id, actor_id, actor_name, target_user_id, evento, fecha, origen, metadata)
+         VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)`,
+        [
+          auditId,
+          actorId || null,
+          actorName || null,
+          targetUserId,
+          'admin_password_reset',
+          'sistema',
+          JSON.stringify({ targetUserId })
+        ]
+      );
+
+      // Construir usuario seguro desde la fila retornada sin hash/salt/password
+      const row = updateRes.rows[0];
+      const safeUser: User = {
+        id: row.id,
+        username: row.username || undefined,
+        email: row.email || undefined,
+        rol: row.rol as UserRole,
+        profesionalId: row.profesional_id || undefined,
+        activo: Boolean(row.activo),
+        nombre: row.nombre || undefined,
+        mustChangePassword: Boolean(row.must_change_password),
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+      };
+
+      await client.query('COMMIT');
+      return safeUser;
+    } catch (err: any) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {}
+      // Propagar mensaje genérico sin SQL ni contraseñas; sin fallback a memoria
+      throw new Error('No se pudo restablecer la contraseña.');
+    } finally {
+      client.release();
+    }
   }
 
-  return updated;
+  // 3. Fallback Memoria: síncrono sin awaits entre lectura y commit
+  const targetIdx = memoryDb.users.findIndex(u => u.id === targetUserId);
+  if (targetIdx === -1) {
+    return null;
+  }
+
+  const existingUser = memoryDb.users[targetIdx];
+  const { hash, salt } = hashPassword(newPassword);
+  const now = new Date().toISOString();
+
+  // Excluir atributo password heredado del usuario
+  const { password: _legacyPassword, ...userWithoutLegacyPassword } = existingUser as User & { password?: string };
+  const updatedUserRecord: User = {
+    ...userWithoutLegacyPassword,
+    passwordHash: hash,
+    salt,
+    mustChangePassword: true,
+    updatedAt: now
+  };
+  delete (updatedUserRecord as any).password;
+
+  // Construir nuevos arrays sin mutar los originales
+  const newUsers = memoryDb.users.map(u => (u.id === targetUserId ? updatedUserRecord : u));
+
+  const newSessions = (memoryDb.sessions || []).map(s => {
+    if (s.userId === targetUserId && !s.revokedAt) {
+      return { ...s, revokedAt: now };
+    }
+    return s;
+  });
+
+  const auditEntry: AuditLog = {
+    id: `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    actorId,
+    actorName,
+    targetUserId,
+    evento: 'admin_password_reset',
+    fecha: now,
+    origen: 'sistema',
+    metadata: { targetUserId }
+  };
+  const newAuditLogs = [...(memoryDb.auditLogs || []), auditEntry];
+
+  // Snapshot completo
+  const snapshot: FallbackDb = {
+    ...memoryDb,
+    users: newUsers,
+    sessions: newSessions,
+    auditLogs: newAuditLogs
+  };
+
+  // Persistir en archivo temporal único dentro de DATA_DIR y renombrar antes de publicar a memoryDb
+  let tempFilePath: string | null = null;
+  let tempFileCreated = false;
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    tempFilePath = path.join(DATA_DIR, `gwen_db_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.tmp`);
+    const fd = fs.openSync(tempFilePath, 'wx', 0o600);
+    tempFileCreated = true;
+    try {
+      fs.writeFileSync(fd, JSON.stringify(snapshot, null, 2), 'utf-8');
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tempFilePath, DATA_FILE);
+    tempFilePath = null;
+
+    // Publicación a memoryDb posterior a la confirmación de escritura en disco
+    memoryDb.users = newUsers;
+    memoryDb.sessions = newSessions;
+    memoryDb.auditLogs = newAuditLogs;
+  } catch (fsErr) {
+    if (tempFilePath && tempFileCreated) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch {}
+    }
+    throw new Error('No se pudo restablecer la contraseña.');
+  }
+
+  // Devolver usuario seguro
+  const { passwordHash: _ph, salt: _s, ...safeUser } = updatedUserRecord;
+  return safeUser as User;
 }
 
 export async function authenticateUser(identifier: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {

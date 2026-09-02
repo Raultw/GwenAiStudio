@@ -112,7 +112,27 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [loginError, setLoginError] = useState<string | null>(null);
   const [currentUser, setCurrentUser] = useState<any | null>(null);
 
+  // Password change state (for mustChangePassword mandatory flow)
+  const [currentPasswordInput, setCurrentPasswordInput] = useState<string>('');
+  const [newPasswordInput, setNewPasswordInput] = useState<string>('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState<string>('');
+  const [isChangingPassword, setIsChangingPassword] = useState<boolean>(false);
+  const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
+
+  // Epoch refs for neutralizing race conditions across fetch calls
+  const authEpochRef = useRef<number>(0);
+  const dataEpochRef = useRef<number>(0);
+
+  const isAdmin = currentUser?.rol === 'admin' || currentUser?.rol === 'superadmin';
+
   const [activeTab, setActiveTab] = useState<'agenda' | 'clientes' | 'profesionales' | 'horarios' | 'excepciones' | 'nuevo' | 'servicios' | 'promociones' | 'plantillas-beneficios' | 'beneficios' | 'stats'>('agenda');
+
+  // Guard activeTab if switching users results in restricted tab
+  useEffect(() => {
+    if (currentUser && !isAdmin && activeTab === 'plantillas-beneficios') {
+      setActiveTab('agenda');
+    }
+  }, [currentUser, isAdmin, activeTab]);
   const [clientLookupForFicha, setClientLookupForFicha] = useState<{ id?: string; telefono?: string; nombre?: string; apellido?: string } | null>(null);
   const [selectedAppointmentForDetail, setSelectedAppointmentForDetail] = useState<Appointment | null>(null);
   const [selectedProfForSchedule, setSelectedProfForSchedule] = useState<string | null>(null);
@@ -298,43 +318,142 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
+    authEpochRef.current += 1;
+    const currentEpoch = authEpochRef.current;
+    setIsLoading(true);
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ identifier: usernameInput, password: passwordInput })
+        body: JSON.stringify({ identifier: usernameInput.trim(), password: passwordInput })
       });
-      const data = await res.json();
-      if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (authEpochRef.current !== currentEpoch) return;
+
+      if (res.ok && data?.user) {
         setIsAuthenticated(true);
         setCurrentUser(data.user);
-        loadAdminData();
+        setPasswordInput('');
+        if (data.user.rol !== 'admin' && data.user.rol !== 'superadmin' && activeTab === 'plantillas-beneficios') {
+          setActiveTab('agenda');
+        }
       } else {
         setLoginError(data.error || 'Credenciales inválidas');
       }
     } catch (err) {
+      if (authEpochRef.current !== currentEpoch) return;
       setLoginError('Error de conexión con el servidor');
+    } finally {
+      if (authEpochRef.current === currentEpoch) {
+        setIsLoading(false);
+      }
     }
   };
 
   const handleLogout = async () => {
+    authEpochRef.current += 1;
+    dataEpochRef.current += 1;
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    } catch {}
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-    setUsernameInput('');
-    setPasswordInput('');
+      const res = await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      if (res.ok) {
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+        setUsernameInput('');
+        setPasswordInput('');
+        setCurrentPasswordInput('');
+        setNewPasswordInput('');
+        setConfirmPasswordInput('');
+        setAppointments([]);
+        showAdminToast('Sesión cerrada correctamente.', 'info');
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showAdminToast(data.error || 'No se pudo revocar la sesión en el servidor.', 'error');
+      }
+    } catch (err) {
+      showAdminToast('Error de conexión al cerrar sesión en el servidor.', 'error');
+    }
   };
 
   const handleAuthError = () => {
+    authEpochRef.current += 1;
+    dataEpochRef.current += 1;
     setIsAuthenticated(false);
     setCurrentUser(null);
+    setCurrentPasswordInput('');
+    setNewPasswordInput('');
+    setConfirmPasswordInput('');
+  };
+
+  // Mandatory password change handler
+  const handlePasswordChangeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordChangeError(null);
+
+    const cleanCurrent = currentPasswordInput;
+    const cleanNew = newPasswordInput;
+    const cleanConfirm = confirmPasswordInput;
+
+    if (!cleanCurrent || !cleanNew || !cleanConfirm) {
+      setPasswordChangeError('Todos los campos son obligatorios.');
+      return;
+    }
+
+    if (cleanNew !== cleanConfirm) {
+      setPasswordChangeError('La nueva contraseña y su confirmación no coinciden.');
+      return;
+    }
+
+    if (cleanNew.length < 12) {
+      setPasswordChangeError('La nueva contraseña debe tener al menos 12 caracteres.');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      const res = await fetch('/api/auth/password-change', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          currentPassword: cleanCurrent,
+          newPassword: cleanNew
+        })
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && data?.success) {
+        // Backend revokes all sessions on password change
+        authEpochRef.current += 1;
+        dataEpochRef.current += 1;
+        setIsAuthenticated(false);
+        setCurrentUser(null);
+        setCurrentPasswordInput('');
+        setNewPasswordInput('');
+        setConfirmPasswordInput('');
+        setPasswordInput('');
+        setLoginError('Contraseña actualizada con éxito. Por favor iniciá sesión con tu nueva contraseña.');
+        showAdminToast('Contraseña actualizada con éxito. Iniciá sesión con tu nueva clave.');
+      } else if (res.status === 401) {
+        handleAuthError();
+        setLoginError('Sesión expirada. Por favor iniciá sesión nuevamente.');
+      } else {
+        setPasswordChangeError(data.error || 'Error al actualizar la contraseña.');
+      }
+    } catch (err) {
+      setPasswordChangeError('Error de conexión con el servidor.');
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const loadAdminData = async () => {
+    dataEpochRef.current += 1;
+    const currentEpoch = dataEpochRef.current;
     setIsLoading(true);
+
     try {
       const [aptRes, srvRes, profRes, cfgRes, statsRes, dbRes] = await Promise.all([
         fetch('/api/turnos', { credentials: 'include' }),
@@ -345,7 +464,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         fetch('/api/db-status', { credentials: 'include' })
       ]);
 
-      if (aptRes.status === 401 || srvRes.status === 401 || profRes.status === 401) {
+      if (dataEpochRef.current !== currentEpoch) return;
+
+      if (aptRes.status === 401 || srvRes.status === 401 || profRes.status === 401 || cfgRes.status === 401) {
         handleAuthError();
         return;
       }
@@ -357,9 +478,12 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       if (statsRes.ok) setStats(await statsRes.json());
       if (dbRes.ok) setDbStatus(await dbRes.json());
     } catch (err) {
+      if (dataEpochRef.current !== currentEpoch) return;
       console.error('Error fetching admin data:', err);
     } finally {
-      setIsLoading(false);
+      if (dataEpochRef.current === currentEpoch) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -369,14 +493,23 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       setDateFilter(getTodayDateString());
       setSearchQuery('');
       setIsCheckingAuth(true);
+
+      authEpochRef.current += 1;
+      const currentEpoch = authEpochRef.current;
+      const controller = new AbortController();
+
       // Check existing backend session cookie
-      fetch('/api/auth/me', { credentials: 'include' })
+      fetch('/api/auth/me', { credentials: 'include', signal: controller.signal })
         .then(async res => {
+          if (authEpochRef.current !== currentEpoch) return;
           if (res.ok) {
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
             if (data?.user) {
               setIsAuthenticated(true);
               setCurrentUser(data.user);
+              if (data.user.rol !== 'admin' && data.user.rol !== 'superadmin' && activeTab === 'plantillas-beneficios') {
+                setActiveTab('agenda');
+              }
             } else {
               setIsAuthenticated(false);
               setCurrentUser(null);
@@ -386,21 +519,34 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             setCurrentUser(null);
           }
         })
-        .catch(() => {
+        .catch(err => {
+          if (err.name === 'AbortError') return;
+          if (authEpochRef.current !== currentEpoch) return;
           setIsAuthenticated(false);
           setCurrentUser(null);
         })
         .finally(() => {
-          setIsCheckingAuth(false);
+          if (authEpochRef.current === currentEpoch) {
+            setIsCheckingAuth(false);
+          }
         });
+
+      return () => {
+        authEpochRef.current += 1;
+        controller.abort();
+      };
+    } else {
+      authEpochRef.current += 1;
+      dataEpochRef.current += 1;
+      setIsCheckingAuth(false);
     }
   }, [isOpen]);
 
   useEffect(() => {
-    if (isOpen && isAuthenticated) {
+    if (isOpen && isAuthenticated && !currentUser?.mustChangePassword) {
       loadAdminData();
     }
-  }, [isOpen, isAuthenticated]);
+  }, [isOpen, isAuthenticated, currentUser?.mustChangePassword]);
 
   // Change Appointment Status
   const handleUpdateStatus = async (
@@ -874,7 +1020,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
           </div>
         </div>
 
-        {/* Not Authenticated: Login Prompt or Initial Checking */}
+        {/* Not Authenticated: Login Prompt or Initial Checking or Mandatory Password Change */}
         {isCheckingAuth ? (
           <div className="p-12 text-center max-w-md mx-auto my-auto w-full">
             <RefreshCw className="w-8 h-8 animate-spin mx-auto text-[#8E4455] mb-3" />
@@ -929,6 +1075,81 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 Iniciar Sesión
               </button>
             </form>
+          </div>
+        ) : currentUser?.mustChangePassword ? (
+          /* Vista Prioritaria Obligatoria: Cambio de Contraseña Temporal */
+          <div className="p-8 sm:p-12 max-w-md mx-auto my-auto w-full">
+            <div className="bg-white p-6 sm:p-8 rounded-3xl border border-[#E8DCD5] shadow-lg text-left">
+              <div className="w-14 h-14 rounded-2xl bg-amber-50 text-[#8E4455] border border-amber-200 flex items-center justify-center mx-auto mb-4">
+                <Lock className="w-7 h-7 text-[#8E4455]" />
+              </div>
+              <h4 className="font-serif text-xl sm:text-2xl font-medium text-[#241E1A] text-center mb-1">
+                Cambio Obligatorio de Contraseña
+              </h4>
+              <p className="text-xs text-[#7A6B62] text-center mb-6">
+                Por seguridad, debés actualizar tu contraseña temporal antes de acceder a la gestión del estudio.
+              </p>
+
+              <form onSubmit={handlePasswordChangeSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-[#4A3E39] mb-1">Contraseña Actual *</label>
+                  <input
+                    type="password"
+                    value={currentPasswordInput}
+                    onChange={(e) => setCurrentPasswordInput(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-[#241E1A] text-sm focus:outline-none focus:border-[#8E4455]"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[#4A3E39] mb-1">Nueva Contraseña *</label>
+                  <input
+                    type="password"
+                    value={newPasswordInput}
+                    onChange={(e) => setNewPasswordInput(e.target.value)}
+                    placeholder="Mínimo 12 caracteres"
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-[#241E1A] text-sm focus:outline-none focus:border-[#8E4455]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[#4A3E39] mb-1">Confirmar Nueva Contraseña *</label>
+                  <input
+                    type="password"
+                    value={confirmPasswordInput}
+                    onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                    placeholder="Repetir nueva contraseña"
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-[#241E1A] text-sm focus:outline-none focus:border-[#8E4455]"
+                    required
+                  />
+                </div>
+
+                {passwordChangeError && (
+                  <div className="p-3 bg-rose-50 rounded-xl border border-rose-200 text-xs text-rose-700 font-medium">
+                    {passwordChangeError}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={isChangingPassword}
+                  className="w-full py-3 px-4 rounded-xl bg-[#8E4455] text-white text-sm font-medium hover:bg-[#783645] transition-all cursor-pointer mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {isChangingPassword ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Actualizando contraseña...</span>
+                    </>
+                  ) : (
+                    <span>Actualizar Contraseña</span>
+                  )}
+                </button>
+              </form>
+            </div>
           </div>
         ) : (
           /* Authenticated Admin Dashboard */
@@ -1020,17 +1241,19 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 <span>Promociones</span>
               </button>
 
-              <button
-                onClick={() => setActiveTab('plantillas-beneficios')}
-                className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                  activeTab === 'plantillas-beneficios'
-                    ? 'bg-[#8E4455] text-white shadow-xs'
-                    : 'text-[#5A4B43] hover:bg-[#FAF7F2]'
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Tipos de Beneficio</span>
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={() => setActiveTab('plantillas-beneficios')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                    activeTab === 'plantillas-beneficios'
+                      ? 'bg-[#8E4455] text-white shadow-xs'
+                      : 'text-[#5A4B43] hover:bg-[#FAF7F2]'
+                  }`}
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Tipos de Beneficio</span>
+                </button>
+              )}
 
               <button
                 onClick={() => setActiveTab('beneficios')}
@@ -2460,10 +2683,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               )}
 
               {/* TAB: PLANTILLAS DE BENEFICIOS (CATÁLOGO REUTILIZABLE) */}
-              {activeTab === 'plantillas-beneficios' && (
+              {activeTab === 'plantillas-beneficios' && isAdmin && (
                 <BenefitTemplatesAdmin
                   services={services}
                   onAuthError={handleAuthError}
+                  onMustChangePassword={() => {
+                    setCurrentUser((prev: any) => prev ? { ...prev, mustChangePassword: true } : prev);
+                  }}
                 />
               )}
 

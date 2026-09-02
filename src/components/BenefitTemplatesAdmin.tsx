@@ -24,12 +24,29 @@ import type { BenefitTemplate, Service, DiscountType } from '../types';
 interface BenefitTemplatesAdminProps {
   services?: Service[];
   onAuthError?: () => void;
+  onMustChangePassword?: () => void;
 }
 
-export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ services = [], onAuthError }) => {
+function isValidBenefitTemplate(item: any): item is BenefitTemplate {
+  if (!item || typeof item !== 'object') return false;
+  if (typeof item.id !== 'string' || !item.id.trim()) return false;
+  if (typeof item.nombrePublico !== 'string' || !item.nombrePublico.trim()) return false;
+  if (item.tipoDescuento !== 'porcentaje' && item.tipoDescuento !== 'monto_fijo') return false;
+  if (typeof item.valorDescuento !== 'number' || isNaN(item.valorDescuento) || !isFinite(item.valorDescuento) || item.valorDescuento <= 0) return false;
+  if (item.tipoDescuento === 'porcentaje' && item.valorDescuento > 100) return false;
+  if (typeof item.vigenciaDias !== 'number' || !Number.isInteger(item.vigenciaDias) || item.vigenciaDias <= 0) return false;
+  if (!Array.isArray(item.serviciosAplicables)) return false;
+  if (typeof item.activo !== 'boolean') return false;
+  if (item.descripcionPublica !== undefined && item.descripcionPublica !== null && typeof item.descripcionPublica !== 'string') return false;
+  if (item.montoMinimo !== undefined && item.montoMinimo !== null && (typeof item.montoMinimo !== 'number' || isNaN(item.montoMinimo) || !isFinite(item.montoMinimo) || item.montoMinimo < 0)) return false;
+  return true;
+}
+
+export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ services = [], onAuthError, onMustChangePassword }) => {
   const [templates, setTemplates] = useState<BenefitTemplate[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<'forbidden' | 'must_change_password' | 'invalid_data' | 'generic' | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'porcentaje' | 'monto_fijo'>('all');
@@ -69,18 +86,41 @@ export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ se
   const fetchTemplates = async () => {
     setIsLoading(true);
     setFetchError(null);
+    setErrorKind(null);
     try {
       const res = await fetch('/api/benefit-templates?all=true', { credentials: 'include' });
       if (res.status === 401) {
         onAuthError?.();
         throw new Error('Sesión expirada o no autorizada. Por favor inicie sesión nuevamente.');
       }
+      if (res.status === 403) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData.code === 'MUST_CHANGE_PASSWORD' || errData.mustChangePassword) {
+          setErrorKind('must_change_password');
+          onMustChangePassword?.();
+          throw new Error('Debe cambiar su contraseña temporal antes de continuar.');
+        } else {
+          setErrorKind('forbidden');
+          throw new Error(errData.error || 'Acceso denegado: permisos insuficientes para administrar tipos de beneficio.');
+        }
+      }
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || `Error ${res.status}: no se pudieron cargar las plantillas.`);
       }
-      const data: BenefitTemplate[] = await res.json();
-      setTemplates(Array.isArray(data) ? data : []);
+      const data = await res.json().catch(() => null);
+      if (!Array.isArray(data)) {
+        setErrorKind('invalid_data');
+        throw new Error('Formato de respuesta inválido: se esperaba una lista de plantillas.');
+      }
+
+      const hasInvalidItem = data.some(item => !isValidBenefitTemplate(item));
+      if (hasInvalidItem) {
+        setErrorKind('invalid_data');
+        throw new Error('Se recibieron registros de plantillas con estructura o tipos de datos inválidos.');
+      }
+
+      setTemplates(data);
     } catch (err: any) {
       console.error('Error fetching benefit templates:', err);
       setFetchError(err.message || 'Error al conectar con el servidor.');
@@ -99,8 +139,8 @@ export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ se
       // Search
       const q = searchQuery.toLowerCase().trim();
       const matchSearch = !q || (
-        tpl.nombrePublico.toLowerCase().includes(q) ||
-        (tpl.descripcionPublica && tpl.descripcionPublica.toLowerCase().includes(q))
+        (tpl.nombrePublico || '').toLowerCase().includes(q) ||
+        ((tpl.descripcionPublica || '').toLowerCase().includes(q))
       );
 
       // Status
@@ -137,11 +177,22 @@ export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ se
         onAuthError?.();
         throw new Error('Sesión expirada o no autorizada.');
       }
+      if (res.status === 403) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData.code === 'MUST_CHANGE_PASSWORD' || errData.mustChangePassword) {
+          onMustChangePassword?.();
+          throw new Error('Debe cambiar su contraseña temporal antes de continuar.');
+        }
+        throw new Error(errData.error || 'Acceso denegado. Permisos insuficientes.');
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'Error al cambiar estado.');
       }
-      const updated: BenefitTemplate = await res.json();
+      const updated = await res.json().catch(() => null);
+      if (!isValidBenefitTemplate(updated)) {
+        throw new Error('La respuesta del servidor al cambiar estado tiene un formato inválido.');
+      }
       setTemplates(prev => prev.map(item => item.id === updated.id ? updated : item));
       showToast(`Plantilla "${updated.nombrePublico}" ${updated.activo ? 'activada' : 'desactivada'}.`);
     } catch (err: any) {
@@ -273,11 +324,22 @@ export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ se
           onAuthError?.();
           throw new Error('Sesión expirada o no autorizada.');
         }
+        if (res.status === 403) {
+          const errData = await res.json().catch(() => ({}));
+          if (errData.code === 'MUST_CHANGE_PASSWORD' || errData.mustChangePassword) {
+            onMustChangePassword?.();
+            throw new Error('Debe cambiar su contraseña temporal antes de continuar.');
+          }
+          throw new Error(errData.error || 'Acceso denegado. Permisos insuficientes.');
+        }
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || 'Error al actualizar plantilla.');
         }
-        const updated: BenefitTemplate = await res.json();
+        const updated = await res.json().catch(() => null);
+        if (!isValidBenefitTemplate(updated)) {
+          throw new Error('La respuesta del servidor no tiene el formato esperado.');
+        }
         setTemplates(prev => prev.map(t => t.id === updated.id ? updated : t));
         showToast(`Plantilla "${updated.nombrePublico}" actualizada.`);
       } else {
@@ -292,11 +354,22 @@ export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ se
           onAuthError?.();
           throw new Error('Sesión expirada o no autorizada.');
         }
+        if (res.status === 403) {
+          const errData = await res.json().catch(() => ({}));
+          if (errData.code === 'MUST_CHANGE_PASSWORD' || errData.mustChangePassword) {
+            onMustChangePassword?.();
+            throw new Error('Debe cambiar su contraseña temporal antes de continuar.');
+          }
+          throw new Error(errData.error || 'Acceso denegado. Permisos insuficientes.');
+        }
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error || 'Error al crear plantilla.');
         }
-        const created: BenefitTemplate = await res.json();
+        const created = await res.json().catch(() => null);
+        if (!isValidBenefitTemplate(created)) {
+          throw new Error('La respuesta del servidor no tiene el formato esperado.');
+        }
         setTemplates(prev => [created, ...prev]);
         showToast(`Plantilla "${created.nombrePublico}" creada con éxito.`);
       }

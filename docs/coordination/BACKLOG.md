@@ -4,12 +4,12 @@ Estado inicial: 2026-09-02. Esta rama contiene documentación; no cambia la apli
 
 | ID | Prioridad | Estado | Responsable | Objetivo |
 |---|---|---|---|---|
-| SEC-001 | Alta | READY | Antigravity | Preparar una base publicable sin secretos nuevos y una remediación segura de datos versionados; ver tarea detallada. |
+| SEC-001 | Alta | CHANGES_REQUESTED | Antigravity | Corregir los hallazgos de `reviews/SEC-001.md` sobre la entrega `6c9037589882f90d0952bd5655a50359bbfb8337`. |
 | AUTH-002 | Alta | DRAFT | Sin asignar | Reproducir y corregir restauración de sesión y 401 de tipos de beneficio. |
 | BOOK-003 | Media | DRAFT | Sin asignar | Verificar confirmación por email, código y clave de gestión de reserva. |
 | CANCEL-004 | Media | DRAFT | Sin asignar | Revisar cancelación individual administrativa y compensación opcional. |
 
-Solo SEC-001 está autorizada para iniciar en esta fase. Las restantes son antecedentes, no permisos de implementación.
+Solo SEC-001 está autorizada para trabajar en esta fase, incluidas las correcciones de revisión dentro de su alcance. Las restantes son antecedentes, no permisos de implementación.
 
 ## Evidencia y límites
 

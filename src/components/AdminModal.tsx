@@ -56,6 +56,10 @@ import {
   isoDateToAR, 
   formatDateTimeAR 
 } from '../utils/dateUtils.js';
+import {
+  validatePasswordPolicy,
+  getPasswordPolicyChecklist
+} from '../utils/passwordPolicy.js';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -118,6 +122,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [confirmPasswordInput, setConfirmPasswordInput] = useState<string>('');
   const [isChangingPassword, setIsChangingPassword] = useState<boolean>(false);
   const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
+
+  // Visual password policy checklist calculation
+  const isNewPasswordEmpty = !newPasswordInput || newPasswordInput.length === 0;
+  const passwordChecklist = useMemo(() => {
+    const list = getPasswordPolicyChecklist(newPasswordInput || '');
+    if (isNewPasswordEmpty) {
+      return list.map(item => ({ ...item, passed: false }));
+    }
+    return list;
+  }, [newPasswordInput, isNewPasswordEmpty]);
 
   // Epoch refs for neutralizing race conditions across fetch calls
   const authEpochRef = useRef<number>(0);
@@ -409,8 +423,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       return;
     }
 
-    if (cleanNew.length < 8 || cleanNew.length > 16) {
-      setPasswordChangeError('La nueva contraseña debe tener entre 8 y 16 caracteres.');
+    const policyResult = validatePasswordPolicy(cleanNew);
+    if (!policyResult.valid) {
+      setPasswordChangeError(policyResult.error || 'La nueva contraseña no cumple con los requisitos de seguridad.');
       return;
     }
 
@@ -1092,7 +1107,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               </button>
             </form>
           </div>
-        ) : currentUser?.mustChangePassword ? (
+) : currentUser?.mustChangePassword ? (
           /* Vista Prioritaria Obligatoria: Cambio de Contraseña Temporal */
           <div className="p-8 sm:p-12 max-w-md mx-auto my-auto w-full">
             <div className="bg-white p-6 sm:p-8 rounded-3xl border border-[#E8DCD5] shadow-lg text-left">
@@ -1130,7 +1145,13 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     className="w-full py-2.5 px-4 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-[#241E1A] text-sm focus:outline-none focus:border-[#8E4455]"
                     required
                   />
-                  <p className="mt-2 text-[11px] text-[#6B5A52]">Debe tener 8–16 caracteres, mayúscula, minúscula, número y símbolo. No uses secuencias de cuatro números consecutivos.</p>
+                  <ul aria-label="Requisitos de contraseña" className="mt-2 space-y-1 text-[11px]">
+                    {passwordChecklist.map(item => (
+                      <li key={item.id} className={item.passed ? 'text-green-700' : 'text-[#6B5A52]'}>
+                        {item.passed ? '✓ Cumplido: ' : '○ Pendiente: '}{item.label}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
 
                 <div>
@@ -1143,6 +1164,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     className="w-full py-2.5 px-4 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-[#241E1A] text-sm focus:outline-none focus:border-[#8E4455]"
                     required
                   />
+                  {confirmPasswordInput && (
+                    <p role="status" className={confirmPasswordInput === newPasswordInput ? 'mt-2 text-xs text-green-700' : 'mt-2 text-xs text-rose-600'}>
+                      {confirmPasswordInput === newPasswordInput ? '✓ Las contraseñas coinciden' : 'Las contraseñas no coinciden'}
+                    </p>
+                  )}
                 </div>
 
                 {passwordChangeError && (

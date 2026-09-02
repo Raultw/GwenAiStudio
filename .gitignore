@@ -22,6 +22,7 @@ pnpm-debug.log*
 
 # Base de datos operativa local
 data/gwen_db.json
+data/*.bak
 *.sqlite
 *.sqlite3
 *.db
@@ -40,6 +41,4 @@ Thumbs.db
 *~
 .idea/
 .vscode/*
-!.vscode/settings.json
 !.vscode/extensions.json
-

@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+Diseño siguiente disponible en `coordination/tasks/AUTH-002-transaction-design.md`: unificar cambio/reset, revocación y auditoría; resolver competencia de creación de sesión. Inspección confirma reset sin revocación y helpers que silencian fallos. Pendiente implementación y PostgreSQL aislado; no están cubiertos por las pruebas previas del handler.
+
 Validaciones contextuales publicadas en `6df6715`: tipos string/no vacíos, rechazo de clave nueva igual a actual o username; 17 casos aislados del handler aprobados. Sigue pendiente atomicidad conjunta y provisión/Mi cuenta. La revisión automática bloqueó el diagnóstico externo de Antigravity por considerar insuficiente el consentimiento específico para compartir código fuente; se pausa ese despacho, conservando continuidad local autorizada.
 
 Siguiente bloque preparado: `coordination/tasks/AUTH-002-account-followup.md`. Inspección sobre 645d9b0 muestra pendiente impedir reutilizar clave actual y validar tipos en password-change, además de revisar atomicidad conjunta de hash/revocación/auditoría antes de provisión genérica. Estos puntos no se consideran implementados ni probados.

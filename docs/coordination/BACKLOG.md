@@ -6,7 +6,7 @@ Estado inicial: 2026-09-02. Esta rama contiene documentación; no cambia la apli
 |---|---|---|---|---|
 | SEC-002 | Alta | REVIEW | Antigravity | Aislamiento aprobado en 52db6fd: 39 pruebas pasan, exit 0, JSON operativo sin cambios. Pendiente integración; tsc global falla por node-fetch ausente en otra suite. |
 | SEC-001 | Alta | REVIEW | Antigravity | Correcciones aprobadas en `dd360bbc501edef5f13531f8facebbd9299cb4a9`; pendiente de integración autorizada. Ver `reviews/SEC-001-final.md`. |
-| AUTH-002 | Alta | IN_PROGRESS | Antigravity | Política compartida en 86c5fd6, 12 casos puros aprobados; checklist visual en ejecución. Restan QA de contraseña/carreras y provisión de cuentas. Ver entrega AUTH-002-policy-review en rama de implementación. |
+| AUTH-002 | Alta | IN_PROGRESS | Antigravity | Política en 86c5fd6 y checklist visual en ee562e3 revisados; 12 casos puros y flujo Chrome con API simulada aprobados. Restan provisión/reset/Mi cuenta, reglas contextuales y QA restante. Ver entregas AUTH-002-policy-review y AUTH-002-checklist-review. |
 | BOOK-003 | Media | DRAFT | Sin asignar | Verificar confirmación por email, código y clave de gestión de reserva. |
 | CANCEL-004 | Media | DRAFT | Sin asignar | Revisar cancelación individual administrativa y compensación opcional. |
 

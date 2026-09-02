@@ -2,7 +2,7 @@
 
 ## 1. Canal y puesta en marcha
 
-GitHub contiene instrucciones, entregas y revisiones; no es un ejecutor de agentes. Antigravity informó que necesita una sesión iniciada por el usuario. No hay un servicio desatendido verificado. No afirmar que los agentes se comunican o ejecutan automáticamente fuera de esas sesiones.
+GitHub contiene instrucciones, entregas y revisiones; no es un ejecutor de agentes. La limitación inicial del IDE fue complementada con Antigravity CLI y un seguimiento periódico ligado al chat de Codex. Consultar [AUTOMATION.md](AUTOMATION.md) para la configuración verificada y sus límites. No confundir una ejecución directa del CLI con un disparo ya observado del programador.
 
 Esta documentación se publica inicialmente en `codex/coordination-workflow`, sin integrar main. Durante esta puesta en marcha, leer las instrucciones de esa rama. Las implementaciones parten del main canónico, sin arrastrar la rama documental. Después de integrar la documentación aprobada, main será también la fuente del protocolo.
 

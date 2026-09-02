@@ -4,7 +4,7 @@ Estado inicial: 2026-09-02. Esta rama contiene documentación; no cambia la apli
 
 | ID | Prioridad | Estado | Responsable | Objetivo |
 |---|---|---|---|---|
-| SEC-001 | Alta | CHANGES_REQUESTED | Antigravity | Corregir los hallazgos de `reviews/SEC-001.md` sobre la entrega `6c9037589882f90d0952bd5655a50359bbfb8337`. |
+| SEC-001 | Alta | REVIEW | Antigravity | Correcciones aprobadas en `dd360bbc501edef5f13531f8facebbd9299cb4a9`; pendiente de integración autorizada. Ver `reviews/SEC-001-final.md`. |
 | AUTH-002 | Alta | DRAFT | Sin asignar | Reproducir y corregir restauración de sesión y 401 de tipos de beneficio. |
 | BOOK-003 | Media | DRAFT | Sin asignar | Verificar confirmación por email, código y clave de gestión de reserva. |
 | CANCEL-004 | Media | DRAFT | Sin asignar | Revisar cancelación individual administrativa y compensación opcional. |
@@ -17,7 +17,7 @@ Solo SEC-001 está autorizada para trabajar en esta fase, incluidas las correcci
 - `data/gwen_db.json` contiene credenciales, hashes, sesiones y contactos. No copiar valores a tareas ni comentarios.
 - Los reportes anteriores de suites exitosas no sustituyen pruebas sobre este baseline.
 - El fallo de login tras recarga y el 401 del catálogo se observaron en `gwennails.ai.studio`, no en Render. Reproducir en el entorno actual antes de atribuirle esos fallos.
-- Antigravity informó ejecución interactiva por sesión; automatización desatendida no verificada.
+- Coordinación programada configurada; dos rondas reales de Antigravity CLI completadas. Primer disparo del programador pendiente de observar. Ver `AUTOMATION.md`.
 - La carga inicial con riesgos fue autorizada expresamente por el propietario. Esto no obliga a conservarlos ni habilita cambios sensibles sin permiso.
 
 ## Mantenimiento

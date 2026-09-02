@@ -65,6 +65,7 @@ import {
   deleteUser,
   authenticateUser,
   adminResetPassword,
+  changeOwnPassword,
   getSchedules,
   getScheduleForDate,
   saveSchedule,
@@ -1229,50 +1230,13 @@ app.post("/api/auth/password-change", requireAuth, async (req, res) => {
       return;
     }
     const userId = req.user!.id;
-    const userFull = await getUserById(userId);
-    if (!userFull || !userFull.passwordHash || !userFull.salt) {
-      res.status(401).json({ error: "Usuario no válido" });
+    const updated = await changeOwnPassword(userId, currentPassword, newPassword);
+    if (!updated) {
+      res.status(401).json({ error: "Usuario no encontrado" });
       return;
     }
-    const isValidCurrent = verifyPassword(currentPassword, userFull.salt, userFull.passwordHash);
-    if (!isValidCurrent) {
-      res.status(400).json({ error: "La contraseña actual es incorrecta" });
-      return;
-    }
-
-    if (newPassword === currentPassword) {
-      res.status(400).json({ error: "La nueva contraseña debe ser distinta de la actual" });
-      return;
-    }
-    if (userFull.username && newPassword.toLowerCase() === userFull.username.trim().toLowerCase()) {
-      res.status(400).json({ error: "La nueva contraseña no puede coincidir con el nombre de usuario" });
-      return;
-    }
-
-    const policyCheck = validatePasswordPolicy(newPassword);
-    if (!policyCheck.valid) {
-      res.status(400).json({ error: policyCheck.error });
-      return;
-    }
-
-    await updateUser(userId, {
-      password: newPassword,
-      mustChangePassword: false
-    });
-
-    await revokeAllUserSessions(userId);
-
-    await createAuditLog({
-      actorId: userId,
-      actorName: req.user!.nombre || req.user!.username,
-      targetUserId: userId,
-      evento: 'password_changed',
-      metadata: { userId }
-    });
-
-    res.json({ success: true, message: "Contraseña actualizada con éxito." });
+    res.status(200).json({ success: true, message: "Contraseña actualizada con éxito." });
   } catch (error: any) {
-    console.error("Error in POST /api/auth/password-change:", error);
     res.status(400).json({ error: error.message || "Error al actualizar contraseña" });
   }
 });

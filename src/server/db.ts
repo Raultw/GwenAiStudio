@@ -3704,13 +3704,25 @@ export async function deleteUser(id: string): Promise<boolean> {
   return true;
 }
 
-export async function adminResetPassword(
+async function changeUserCredentialAtomic(
   targetUserId: string,
   newPassword: string,
+  currentPassword?: string,
   actorId?: string,
   actorName?: string
 ): Promise<User | null> {
-  // 1. Validar nueva contraseña con política actual
+  const isSelf = currentPassword !== undefined;
+
+  // 1. Validar parámetros y política
+  if (isSelf) {
+    if (typeof currentPassword !== 'string' || currentPassword.length === 0) {
+      throw new Error('Contraseña actual requerida.');
+    }
+    if (newPassword === currentPassword) {
+      throw new Error('La nueva contraseña debe ser distinta de la actual.');
+    }
+  }
+
   const policy = validatePasswordPolicy(newPassword);
   if (!policy.valid) {
     throw new Error(policy.error);
@@ -3722,15 +3734,15 @@ export async function adminResetPassword(
     try {
       client = await pgPool.connect();
     } catch (connectErr) {
-      throw new Error('No se pudo restablecer la contraseña.');
+      throw new Error(isSelf ? 'No se pudo cambiar la contraseña.' : 'No se pudo restablecer la contraseña.');
     }
 
     try {
       await client.query('BEGIN');
 
-      // Bloqueo pesimista de fila users
+      // Bloqueo pesimista de fila users (incluye password_hash y salt para verificación)
       const userRes = await client.query(
-        `SELECT id, username, email, rol, profesional_id, activo, nombre, must_change_password, created_at, updated_at
+        `SELECT id, username, email, password_hash, salt, rol, profesional_id, activo, nombre, must_change_password, created_at, updated_at
          FROM users
          WHERE id = $1
          FOR UPDATE`,
@@ -3742,18 +3754,39 @@ export async function adminResetPassword(
         return null;
       }
 
+      const userRow = userRes.rows[0];
+
+      if (isSelf) {
+        if (!userRow.activo) {
+          throw new Error('Usuario inactivo o no válido.');
+        }
+
+        if (!userRow.password_hash || !userRow.salt || !verifyPassword(currentPassword, userRow.salt, userRow.password_hash)) {
+          throw new Error('La contraseña actual es incorrecta.');
+        }
+
+        if (userRow.username) {
+          const normUsername = userRow.username.trim().toLowerCase();
+          if (newPassword.toLowerCase() === normUsername) {
+            throw new Error('La nueva contraseña no puede coincidir con el nombre de usuario.');
+          }
+        }
+      }
+
       const { hash, salt } = hashPassword(newPassword);
+      const mustChangePassword = !isSelf;
+      const evento = isSelf ? 'password_changed' : 'admin_password_reset';
 
       // Actualizar estrictamente hash, salt, must_change_password y updated_at
       const updateRes = await client.query(
         `UPDATE users
          SET password_hash = $2,
              salt = $3,
-             must_change_password = true,
+             must_change_password = $4,
              updated_at = NOW()
          WHERE id = $1
          RETURNING id, username, email, rol, profesional_id, activo, nombre, must_change_password, created_at, updated_at`,
-        [targetUserId, hash, salt]
+        [targetUserId, hash, salt, mustChangePassword]
       );
 
       // Revocar sesiones activas existentes
@@ -3766,17 +3799,19 @@ export async function adminResetPassword(
 
       // Registrar auditoría con datos de actor y metadata acotada estrictamente a targetUserId
       const auditId = `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+      const effectiveActorName = actorName || (isSelf ? (userRow.nombre || userRow.username) : null);
+      const auditMetadata = isSelf ? { userId: targetUserId } : { targetUserId };
       await client.query(
         `INSERT INTO audit_logs (id, actor_id, actor_name, target_user_id, evento, fecha, origen, metadata)
          VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)`,
         [
           auditId,
           actorId || null,
-          actorName || null,
+          effectiveActorName,
           targetUserId,
-          'admin_password_reset',
+          evento,
           'sistema',
-          JSON.stringify({ targetUserId })
+          JSON.stringify(auditMetadata)
         ]
       );
 
@@ -3801,8 +3836,18 @@ export async function adminResetPassword(
       try {
         await client.query('ROLLBACK');
       } catch {}
+      const knownValidationMessages = [
+        'Usuario inactivo o no válido.',
+        'La contraseña actual es incorrecta.',
+        'La nueva contraseña debe ser distinta de la actual.',
+        'La nueva contraseña no puede coincidir con el nombre de usuario.',
+        'Contraseña actual requerida.'
+      ];
+      if (err?.message && knownValidationMessages.includes(err.message)) {
+        throw err;
+      }
       // Propagar mensaje genérico sin SQL ni contraseñas; sin fallback a memoria
-      throw new Error('No se pudo restablecer la contraseña.');
+      throw new Error(isSelf ? 'No se pudo cambiar la contraseña.' : 'No se pudo restablecer la contraseña.');
     } finally {
       client.release();
     }
@@ -3815,8 +3860,28 @@ export async function adminResetPassword(
   }
 
   const existingUser = memoryDb.users[targetIdx];
+
+  if (isSelf) {
+    if (!existingUser.activo) {
+      throw new Error('Usuario inactivo o no válido.');
+    }
+
+    if (!existingUser.passwordHash || !existingUser.salt || !verifyPassword(currentPassword, existingUser.salt, existingUser.passwordHash)) {
+      throw new Error('La contraseña actual es incorrecta.');
+    }
+
+    if (existingUser.username) {
+      const normUsername = existingUser.username.trim().toLowerCase();
+      if (newPassword.toLowerCase() === normUsername) {
+        throw new Error('La nueva contraseña no puede coincidir con el nombre de usuario.');
+      }
+    }
+  }
+
   const { hash, salt } = hashPassword(newPassword);
   const now = new Date().toISOString();
+  const mustChangePassword = !isSelf;
+  const evento = isSelf ? 'password_changed' : 'admin_password_reset';
 
   // Excluir atributo password heredado del usuario
   const { password: _legacyPassword, ...userWithoutLegacyPassword } = existingUser as User & { password?: string };
@@ -3824,7 +3889,7 @@ export async function adminResetPassword(
     ...userWithoutLegacyPassword,
     passwordHash: hash,
     salt,
-    mustChangePassword: true,
+    mustChangePassword,
     updatedAt: now
   };
   delete (updatedUserRecord as any).password;
@@ -3839,15 +3904,17 @@ export async function adminResetPassword(
     return s;
   });
 
+  const effectiveActorName = actorName || (isSelf ? (existingUser.nombre || existingUser.username) : undefined);
+  const auditMetadata = isSelf ? { userId: targetUserId } : { targetUserId };
   const auditEntry: AuditLog = {
     id: `audit-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
     actorId,
-    actorName,
+    actorName: effectiveActorName,
     targetUserId,
-    evento: 'admin_password_reset',
+    evento,
     fecha: now,
     origen: 'sistema',
-    metadata: { targetUserId }
+    metadata: auditMetadata
   };
   const newAuditLogs = [...(memoryDb.auditLogs || []), auditEntry];
 
@@ -3887,12 +3954,38 @@ export async function adminResetPassword(
         fs.unlinkSync(tempFilePath);
       } catch {}
     }
-    throw new Error('No se pudo restablecer la contraseña.');
+    throw new Error(isSelf ? 'No se pudo cambiar la contraseña.' : 'No se pudo restablecer la contraseña.');
   }
 
   // Devolver usuario seguro
   const { passwordHash: _ph, salt: _s, ...safeUser } = updatedUserRecord;
   return safeUser as User;
+}
+
+export async function adminResetPassword(
+  targetUserId: string,
+  newPassword: string,
+  actorId?: string,
+  actorName?: string
+): Promise<User | null> {
+  return changeUserCredentialAtomic(targetUserId, newPassword, undefined, actorId, actorName);
+}
+
+export async function changeOwnPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<User | null> {
+  if (typeof userId !== 'string' || !userId.trim()) {
+    throw new Error('ID de usuario requerido.');
+  }
+  if (typeof currentPassword !== 'string' || !currentPassword) {
+    throw new Error('Contraseña actual requerida.');
+  }
+  if (typeof newPassword !== 'string' || !newPassword) {
+    throw new Error('Nueva contraseña requerida.');
+  }
+  return changeUserCredentialAtomic(userId.trim(), newPassword, currentPassword, userId.trim());
 }
 
 export async function authenticateUser(identifier: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {

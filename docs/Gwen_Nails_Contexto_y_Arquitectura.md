@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+Validaciones contextuales publicadas en `6df6715`: tipos string/no vacíos, rechazo de clave nueva igual a actual o username; 17 casos aislados del handler aprobados. Sigue pendiente atomicidad conjunta y provisión/Mi cuenta. La revisión automática bloqueó el diagnóstico externo de Antigravity por considerar insuficiente el consentimiento específico para compartir código fuente; se pausa ese despacho, conservando continuidad local autorizada.
+
 Siguiente bloque preparado: `coordination/tasks/AUTH-002-account-followup.md`. Inspección sobre 645d9b0 muestra pendiente impedir reutilizar clave actual y validar tipos en password-change, además de revisar atomicidad conjunta de hash/revocación/auditoría antes de provisión genérica. Estos puntos no se consideran implementados ni probados.
 
 Seguridad de persistencia, 2026-09-02: `645d9b0` evita guardar password en texto plano al actualizar usuarios, elimina fallback hardcodeado en createUser y detiene escritura de memoria si falla SQL. Ocho pruebas de funciones extraídas con almacenamiento simulado aprobadas; no integración PostgreSQL ni QA desplegado. Provisión temporal configurable sigue pendiente. Codex completó este bloque tras denegación de lectura de Antigravity; revisar permisos concretos antes de nuevos pedidos.

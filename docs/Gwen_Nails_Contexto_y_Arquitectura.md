@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+Reset administrativo parcial publicado en `e1b919a`: transacción de hash, obligación de cambio, revocación y auditoría; snapshot estricto en memoria. Propuesta Antigravity revisada por Codex; nueve casos con SQL/fs simulados aprobados. No probado sobre DB/disco reales ni desplegado. Restan self-change y carrera login/reset; roadmap 4 no cerrado.
+
 Roadmap de seguimiento del propietario: [lista ordenada y estados](coordination/ROADMAP.md). Conservar numeración, distinguir implementación en rama de funcionamiento desplegado y mostrar nuevamente la lista completa cada vez que un tema se cierre. Esta vista resume el estado vigente sin borrar antecedentes.
 
 Autorización posterior del propietario: Antigravity CLI puede leer y procesar server.ts y src/server/db.ts, excluyendo secretos/datos de clientes. Diagnóstico ejecutado tras consentimiento confirmó view_file de db.ts y respuesta LECTURA_OK (exit 0). Se retoma coordinación; runner local captura rutas de herramientas para diagnosticar rechazos futuros. Esto no acredita aún la implementación transaccional pendiente.

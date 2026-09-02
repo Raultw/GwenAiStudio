@@ -8,7 +8,7 @@ Estado inicial: 2026-09-02. Esta rama contiene documentación; no cambia la apli
 |---|---|---|---|---|
 | SEC-002 | Alta | REVIEW | Antigravity | Aislamiento aprobado en 52db6fd: 39 pruebas pasan, exit 0, JSON operativo sin cambios. Pendiente integración; tsc global falla por node-fetch ausente en otra suite. |
 | SEC-001 | Alta | REVIEW | Antigravity | Correcciones aprobadas en `dd360bbc501edef5f13531f8facebbd9299cb4a9`; pendiente de integración autorizada. Ver `reviews/SEC-001-final.md`. |
-| AUTH-002 | Alta | IN_PROGRESS | Antigravity/Codex | Reset atómico parcial en e1b919a, 9 casos SQL/fs simulados aprobados. Restan self-change transaccional, carrera login/reset, provisión/Mi cuenta y QA real. Roadmap 4 en curso. |
+| AUTH-002 | Alta | IN_PROGRESS | Antigravity/Codex | Cambio propio/reset compartidos en fee887e; 17 casos SQL/fs y 15 de handler simulados aprobados. Restan carrera login/reset, rutas paralelas, provisión/Mi cuenta y QA real. Roadmap 4 en curso. |
 | BOOK-003 | Media | DRAFT | Sin asignar | Verificar confirmación por email, código y clave de gestión de reserva. |
 | CANCEL-004 | Media | DRAFT | Sin asignar | Revisar cancelación individual administrativa y compensación opcional. |
 

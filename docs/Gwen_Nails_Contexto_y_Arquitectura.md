@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+Cambio propio transaccional en `fee887e`, compartiendo operación con reset administrativo. Clave actual se verifica bajo bloqueo; endpoint delega una sola operación. 17 pruebas con SQL/fs simulados y 15 de handler aprobadas. Restan carrera login/reset, rutas alternativas y PostgreSQL/QA real; ítem 4 sigue abierto.
+
 Seguridad complementaria en `101cb4a`: fallo SQL al verificar sesión ya no permite autenticar mediante copia en memoria potencialmente obsoleta; cinco casos aislados aprobados. Se excluye password heredado de respuesta memoria. Self-change/login-reset siguen pendientes; no cerrado/desplegado.
 
 Reset administrativo parcial publicado en `e1b919a`: transacción de hash, obligación de cambio, revocación y auditoría; snapshot estricto en memoria. Propuesta Antigravity revisada por Codex; nueve casos con SQL/fs simulados aprobados. No probado sobre DB/disco reales ni desplegado. Restan self-change y carrera login/reset; roadmap 4 no cerrado.

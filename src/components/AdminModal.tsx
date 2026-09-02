@@ -409,8 +409,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
       return;
     }
 
-    if (cleanNew.length < 12) {
-      setPasswordChangeError('La nueva contraseña debe tener al menos 12 caracteres.');
+    if (cleanNew.length < 8 || cleanNew.length > 16) {
+      setPasswordChangeError('La nueva contraseña debe tener entre 8 y 16 caracteres.');
       return;
     }
 
@@ -1126,10 +1126,11 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                     type="password"
                     value={newPasswordInput}
                     onChange={(e) => setNewPasswordInput(e.target.value)}
-                    placeholder="Mínimo 12 caracteres"
+                    placeholder="Entre 8 y 16 caracteres"
                     className="w-full py-2.5 px-4 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-[#241E1A] text-sm focus:outline-none focus:border-[#8E4455]"
                     required
                   />
+                  <p className="mt-2 text-[11px] text-[#6B5A52]">Debe tener 8–16 caracteres, mayúscula, minúscula, número y símbolo. No uses secuencias de cuatro números consecutivos.</p>
                 </div>
 
                 <div>

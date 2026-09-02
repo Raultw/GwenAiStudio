@@ -271,11 +271,11 @@ export function validatePasswordPolicy(pass: string): { valid: boolean; error?: 
   if (/^\s+$/.test(pass)) {
     return { valid: false, error: 'La contraseña no puede consistir únicamente en espacios.' };
   }
-  if (pass.length < 12) {
-    return { valid: false, error: 'La contraseña debe tener al menos 12 caracteres.' };
+  if (pass.length < 8) {
+    return { valid: false, error: 'La contraseña debe tener al menos 8 caracteres.' };
   }
-  if (pass.length > 128) {
-    return { valid: false, error: 'La contraseña no puede exceder los 128 caracteres.' };
+  if (pass.length > 16) {
+    return { valid: false, error: 'La contraseña no puede exceder los 16 caracteres.' };
   }
   if (!/[a-z]/.test(pass)) {
     return { valid: false, error: 'La contraseña debe contener al menos una letra minúscula.' };
@@ -286,8 +286,11 @@ export function validatePasswordPolicy(pass: string): { valid: boolean; error?: 
   if (!/[0-9]/.test(pass)) {
     return { valid: false, error: 'La contraseña debe contener al menos un número.' };
   }
-  if (!/[^a-zA-Z0-9]/.test(pass)) {
+  if (!/[^a-zA-Z0-9\s]/.test(pass)) {
     return { valid: false, error: 'La contraseña debe contener al menos un símbolo especial.' };
+  }
+  if (/(?:0123|1234|2345|3456|4567|5678|6789|9876|8765|7654|6543|5432|4321|3210)/.test(pass)) {
+    return { valid: false, error: 'La contraseña no puede contener secuencias de cuatro números consecutivos.' };
   }
   return { valid: true };
 }

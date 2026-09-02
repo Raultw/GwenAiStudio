@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+Avance SEC-002: aislamiento de la suite de autenticación aprobado en 52db6fd, aún sin merge. Ejecución aislada de 39 pruebas exitosa y JSON del proyecto intacto; cierre posterior a cleanup corregido por el revisor. TypeScript global pendiente por dependencia node-fetch ausente en otra suite. Retomar AUTH-002: no confundir pruebas unitarias con recarga real del navegador o creación de plantillas.
+
 1. AUTH-002 — Primera prioridad autorizada: reproducir y corregir sesión al recargar, reconocimiento de superadmin en permisos administrativos, carga y creación de tipos de beneficio. Diferenciar lista vacía de fallo real; no ocultar 401/403 como ausencia de registros. Mantener estética.
 2. BOOK-003 — Después de revisar AUTH-002: confirmar email de reserva y código/clave de gestión visibles con aviso de guardado, preservando la pantalla actual.
 3. CANCEL-004 — Después de BOOK-003: cancelación individual con compensación opcional y aviso correcto con/sin beneficio; revalidar el flujo por excepciones.

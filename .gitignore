@@ -1,9 +1,45 @@
+# Dependencias y compilacion
 node_modules/
 build/
 dist/
 coverage/
-.DS_Store
+*.tsbuildinfo
+.turbo/
+.cache/
+
+# Logs y depuracion
 *.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Variables de entorno y configuracion local
 .env*
 !.env.example
+*.local
+
+# Base de datos operativa local
 data/gwen_db.json
+*.sqlite
+*.sqlite3
+*.db
+
+# Archivos temporales
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Archivos de sistema y editores
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+

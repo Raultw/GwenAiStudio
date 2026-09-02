@@ -4031,7 +4031,7 @@ export async function validateSessionToken(rawToken: string): Promise<{ valid: b
 
       return { valid: true, user, session };
     } catch (err) {
-      console.error('Error validating session in PostgreSQL:', err);
+      return { valid: false, error: 'No se pudo verificar la sesión' };
     }
   }
 
@@ -4056,7 +4056,7 @@ export async function validateSessionToken(rawToken: string): Promise<{ valid: b
   session.lastActivityAt = new Date().toISOString();
   saveLocalFileDb();
 
-  const { passwordHash: _, salt: __, ...safeUser } = userRecord;
+  const { passwordHash: _, salt: __, password: _legacyPassword, ...safeUser } = userRecord as User & { password?: string };
   return { valid: true, user: safeUser as SafeUser, session };
 }
 

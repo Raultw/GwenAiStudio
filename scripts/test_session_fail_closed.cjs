@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
+const root=path.resolve(__dirname,'..'),ts=require(path.join(root,'node_modules/typescript'));
+const src=ts.createSourceFile('db.ts',fs.readFileSync(path.join(root,'src/server/db.ts'),'utf8'),ts.ScriptTarget.Latest,true);
+const fn=src.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='validateSessionToken');
+const code=ts.transpileModule(fn.getText(src).replace(/^export /,''),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+function setup(pg){let saved=0;const ctx={isPostgresConnected:pg,pgPool:{query:async()=>{throw Error('private-sql');}},hashSessionToken:()=> 'token-hash',memoryDb:{sessions:[{id:'s',userId:'u',tokenHash:'token-hash',expiresAt:new Date(Date.now()+60000).toISOString()}],users:[{id:'u',activo:true,password:'legacy',passwordHash:'hash',salt:'salt',rol:'professional'}]},saveLocalFileDb:()=>saved++,console:{error:()=>{throw Error('Sensitive raw error logged');}}};vm.createContext(ctx);vm.runInContext(code,ctx);return {ctx,saved:()=>saved};}
+(async()=>{let count=0;const pg=setup(true),before=JSON.stringify(pg.ctx.memoryDb);const fail=await pg.ctx.validateSessionToken('test');assert.equal(fail.valid,false);assert.equal(pg.saved(),0);assert.equal(JSON.stringify(pg.ctx.memoryDb),before);assert.equal(fail.error.includes('private-sql'),false);count++;
+const mem=setup(false),ok=await mem.ctx.validateSessionToken('test');assert.equal(ok.valid,true);for(const field of ['password','passwordHash','salt'])assert.equal(field in ok.user,false);count++;
+for(const kind of ['revoked','expired','inactive']){const t=setup(false);if(kind==='revoked')t.ctx.memoryDb.sessions[0].revokedAt='2026-01-01';if(kind==='expired')t.ctx.memoryDb.sessions[0].expiresAt='2000-01-01';if(kind==='inactive')t.ctx.memoryDb.users[0].activo=false;assert.equal((await t.ctx.validateSessionToken('test')).valid,false);count++;}
+console.log('PASS '+count+' isolated session validation cases; SQL mocked, no network/DB');})().catch(e=>{console.log('FAIL '+e.name);process.exitCode=1;});

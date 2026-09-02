@@ -340,3 +340,47 @@ export function evaluateClientMatch(
     matchSignals: bestMatchSignals
   };
 }
+
+/**
+ * Proposes a standardized username from first name initial and last name:
+ * - Converts to lowercase, strips accents and non-alphanumeric characters
+ * - e.g. "Gwen Nails" -> "gnails"
+ * - If only first name: e.g. "Gwen" -> "gwen"
+ * - Resolves collisions with existing usernames by appending 1, 2, 3...
+ */
+export function generateProposedUsername(
+  nombre: string = '',
+  apellido: string = '',
+  existingUsernames: string[] = []
+): string {
+  const normNom = normalizeText(nombre).replace(/\s+/g, '');
+  const normApe = normalizeText(apellido).replace(/\s+/g, '');
+
+  let base = '';
+  if (normNom && normApe) {
+    base = normNom[0] + normApe;
+  } else if (normApe) {
+    base = normApe;
+  } else if (normNom) {
+    base = normNom;
+  } else {
+    base = 'empleado';
+  }
+
+  base = base.replace(/[^a-z0-9]/g, '');
+  if (!base) base = 'empleado';
+
+  const lowerExisting = new Set(
+    existingUsernames.map(u => (typeof u === 'string' ? u.trim().toLowerCase() : ''))
+  );
+
+  if (!lowerExisting.has(base)) {
+    return base;
+  }
+
+  let counter = 1;
+  while (lowerExisting.has(`${base}${counter}`)) {
+    counter++;
+  }
+  return `${base}${counter}`;
+}

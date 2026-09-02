@@ -1,4 +1,4 @@
-import fetch from 'node-fetch';
+const fetch = globalThis.fetch;
 
 const BASE_URL = 'http://localhost:3000';
 

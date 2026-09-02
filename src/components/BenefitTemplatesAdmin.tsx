@@ -578,7 +578,7 @@ export const BenefitTemplatesAdmin: React.FC<BenefitTemplatesAdminProps> = ({ se
           <h3 className="text-sm font-semibold text-[#241E1A]">
             {searchQuery || statusFilter !== 'all' || typeFilter !== 'all'
               ? 'No se encontraron plantillas'
-              : 'Todavía no existen tipos de beneficio'}
+              : 'No hay tipos de beneficio cargados'}
           </h3>
           <p className="text-xs text-[#7A6B62] mt-1 max-w-md mx-auto">
             {searchQuery || statusFilter !== 'all' || typeFilter !== 'all'

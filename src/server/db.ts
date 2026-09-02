@@ -56,12 +56,18 @@ import {
   normalizePhone, 
   normalizeEmail, 
   evaluateClientMatch, 
-  stringSimilarity 
+  stringSimilarity,
+  generateProposedUsername
 } from './clientMatching.js';
 import { validatePasswordPolicy } from '../utils/passwordPolicy.js';
 
 
 // Default initial services
+export function getEmployeeDefaultTempPassword(): string | null {
+  const temp = process.env.EMPLOYEE_DEFAULT_TEMP_PASSWORD || process.env.EMPLOYEE_TEMP_PASSWORD;
+  return (typeof temp === 'string' && temp.trim()) ? temp.trim() : null;
+}
+
 export const defaultServices: Service[] = [
   {
     id: "1",
@@ -3548,10 +3554,17 @@ export async function createUser(userData: {
   activo?: boolean;
   mustChangePassword?: boolean;
 }): Promise<User> {
-  if (typeof userData.password !== 'string' || userData.password.length === 0) {
-    throw new Error('Contraseña requerida.');
+  let passToValidate = userData.password;
+  let mustChangePassword = !!userData.mustChangePassword;
+  if (!passToValidate || typeof passToValidate !== 'string' || passToValidate.length === 0) {
+    const defaultTemp = getEmployeeDefaultTempPassword();
+    if (defaultTemp) {
+      passToValidate = defaultTemp;
+      mustChangePassword = true;
+    } else {
+      throw new Error('Contraseña requerida o configure EMPLOYEE_DEFAULT_TEMP_PASSWORD en el entorno privado.');
+    }
   }
-  const passToValidate = userData.password;
   const policy = validatePasswordPolicy(passToValidate);
   if (!policy.valid) {
     throw new Error(policy.error);
@@ -3559,7 +3572,7 @@ export async function createUser(userData: {
 
   const id = crypto.randomUUID();
   const username = userData.username ? userData.username.trim() : undefined;
-  const email = userData.email ? normalizeEmail(userData.email) : (username ? normalizeEmail(`${username}@gwennails.local`) : normalizeEmail(`user-${crypto.randomBytes(4).toString('hex')}@gwennails.local`));
+  const email = userData.email && userData.email.trim() ? normalizeEmail(userData.email) : undefined;
   const { hash, salt } = hashPassword(passToValidate);
   const now = new Date().toISOString();
 
@@ -3573,7 +3586,7 @@ export async function createUser(userData: {
     profesionalId: userData.profesionalId,
     activo: userData.activo !== false,
     nombre: userData.nombre,
-    mustChangePassword: !!userData.mustChangePassword,
+    mustChangePassword,
     createdAt: now,
     updatedAt: now
   };
@@ -3771,6 +3784,10 @@ async function changeUserCredentialAtomic(
             throw new Error('La nueva contraseña no puede coincidir con el nombre de usuario.');
           }
         }
+        const tempEnvPassword = (typeof process !== 'undefined' && process?.env) ? (process.env.EMPLOYEE_DEFAULT_TEMP_PASSWORD || process.env.EMPLOYEE_TEMP_PASSWORD || null) : null;
+        if (tempEnvPassword && newPassword === tempEnvPassword) {
+          throw new Error('La nueva contraseña no puede coincidir con la clave temporal.');
+        }
       }
 
       const { hash, salt } = hashPassword(newPassword);
@@ -3875,6 +3892,10 @@ async function changeUserCredentialAtomic(
       if (newPassword.toLowerCase() === normUsername) {
         throw new Error('La nueva contraseña no puede coincidir con el nombre de usuario.');
       }
+    }
+    const tempEnvPasswordMem = (typeof process !== 'undefined' && process?.env) ? (process.env.EMPLOYEE_DEFAULT_TEMP_PASSWORD || process.env.EMPLOYEE_TEMP_PASSWORD || null) : null;
+    if (tempEnvPasswordMem && newPassword === tempEnvPasswordMem) {
+      throw new Error('La nueva contraseña no puede coincidir con la clave temporal.');
     }
   }
 
@@ -3986,6 +4007,251 @@ export async function changeOwnPassword(
     throw new Error('Nueva contraseña requerida.');
   }
   return changeUserCredentialAtomic(userId.trim(), newPassword, currentPassword, userId.trim());
+}
+
+export async function authenticateAndCreateSession(
+  identifier: string,
+  password: string
+): Promise<{
+  success: boolean;
+  user?: SafeUser;
+  session?: Session;
+  rawToken?: string;
+  error?: string;
+}> {
+  if (
+    typeof identifier !== 'string' ||
+    !identifier.trim() ||
+    typeof password !== 'string' ||
+    !password
+  ) {
+    return { success: false, error: 'Usuario o contraseña incorrectos.' };
+  }
+
+  const cleanIdentifier = identifier.trim();
+
+  // 1. PostgreSQL: transacción atómica aislada con bloqueo pesimista
+  if (isPostgresConnected && pgPool) {
+    let client;
+    try {
+      client = await pgPool.connect();
+    } catch (connectErr) {
+      throw new Error('Error al autenticar usuario');
+    }
+
+    try {
+      await client.query('BEGIN');
+
+      const normUsername = cleanIdentifier.toLowerCase();
+      let userRes = await client.query(
+        `SELECT id, username, email, password_hash, salt, rol, profesional_id, activo, nombre, must_change_password, created_at, updated_at
+         FROM users
+         WHERE LOWER(username) = LOWER($1)
+         FOR UPDATE`,
+        [normUsername]
+      );
+
+      if (userRes.rows.length === 0) {
+        const normEmail = normalizeEmail(cleanIdentifier);
+        userRes = await client.query(
+          `SELECT id, username, email, password_hash, salt, rol, profesional_id, activo, nombre, must_change_password, created_at, updated_at
+           FROM users
+           WHERE LOWER(email) = LOWER($1)
+           FOR UPDATE`,
+          [normEmail]
+        );
+      }
+
+      if (userRes.rows.length === 0) {
+        verifyPassword(
+          password,
+          '00000000000000000000000000000000',
+          '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+        );
+        await client.query('ROLLBACK');
+        return { success: false, error: 'Usuario o contraseña incorrectos.' };
+      }
+
+      const userRow = userRes.rows[0];
+
+      if (!userRow.activo || !userRow.password_hash || !userRow.salt) {
+        verifyPassword(
+          password,
+          '00000000000000000000000000000000',
+          '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+        );
+        await client.query('ROLLBACK');
+        return { success: false, error: 'Usuario o contraseña incorrectos.' };
+      }
+
+      const isValid = verifyPassword(password, userRow.salt, userRow.password_hash);
+      if (!isValid) {
+        await client.query('ROLLBACK');
+        return { success: false, error: 'Usuario o contraseña incorrectos.' };
+      }
+
+      const rawToken = generateSessionToken();
+      const tokenHash = hashSessionToken(rawToken);
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+      const sessionId = `sess-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+      await client.query(
+        `INSERT INTO sessions (id, token_hash, user_id, created_at, expires_at, revoked_at, last_activity_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          sessionId,
+          tokenHash,
+          userRow.id,
+          now.toISOString(),
+          expiresAt,
+          null,
+          now.toISOString()
+        ]
+      );
+
+      const safeUser: SafeUser = {
+        id: userRow.id,
+        username: userRow.username || undefined,
+        email: userRow.email || undefined,
+        rol: userRow.rol as UserRole,
+        profesionalId: userRow.profesional_id || undefined,
+        activo: Boolean(userRow.activo),
+        nombre: userRow.nombre || undefined,
+        mustChangePassword: Boolean(userRow.must_change_password),
+        createdAt: userRow.created_at ? new Date(userRow.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: userRow.updated_at ? new Date(userRow.updated_at).toISOString() : new Date().toISOString()
+      };
+
+      const session: Session = {
+        id: sessionId,
+        tokenHash,
+        userId: userRow.id,
+        createdAt: now.toISOString(),
+        expiresAt,
+        revokedAt: null,
+        lastActivityAt: now.toISOString()
+      };
+
+      await client.query('COMMIT');
+
+      return {
+        success: true,
+        user: safeUser,
+        session,
+        rawToken
+      };
+    } catch (err: any) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {}
+      throw new Error('Error al autenticar usuario');
+    } finally {
+      client.release();
+    }
+  }
+
+  // 2. Fallback Memoria: síncrono sin awaits entre verificación y publicación
+  const normUsername = cleanIdentifier.toLowerCase();
+  let user = memoryDb.users.find(
+    u => u.username && u.username.trim().toLowerCase() === normUsername
+  );
+
+  if (!user) {
+    const normEmail = normalizeEmail(cleanIdentifier);
+    user = memoryDb.users.find(
+      u => u.email && normalizeEmail(u.email) === normEmail
+    );
+  }
+
+  if (!user || !user.activo || !user.passwordHash || !user.salt) {
+    verifyPassword(
+      password,
+      '00000000000000000000000000000000',
+      '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000'
+    );
+    return { success: false, error: 'Usuario o contraseña incorrectos.' };
+  }
+
+  const isValid = verifyPassword(password, user.salt, user.passwordHash);
+  if (!isValid) {
+    return { success: false, error: 'Usuario o contraseña incorrectos.' };
+  }
+
+  const rawToken = generateSessionToken();
+  const tokenHash = hashSessionToken(rawToken);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const sessionId = `sess-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+
+  const session: Session = {
+    id: sessionId,
+    tokenHash,
+    userId: user.id,
+    createdAt: now.toISOString(),
+    expiresAt,
+    revokedAt: null,
+    lastActivityAt: now.toISOString()
+  };
+
+  const newSessions = [...(memoryDb.sessions || []), session];
+  const snapshot: FallbackDb = {
+    ...memoryDb,
+    sessions: newSessions
+  };
+
+  let tempFilePath: string | null = null;
+  let tempFileCreated = false;
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    tempFilePath = path.join(
+      DATA_DIR,
+      `gwen_db_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.tmp`
+    );
+    const fd = fs.openSync(tempFilePath, 'wx', 0o600);
+    tempFileCreated = true;
+    try {
+      fs.writeFileSync(fd, JSON.stringify(snapshot, null, 2), 'utf-8');
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tempFilePath, DATA_FILE);
+    tempFilePath = null;
+
+    // Publicación posterior a la persistencia confirmada en disco
+    memoryDb.sessions = newSessions;
+  } catch (fsErr) {
+    if (tempFilePath && tempFileCreated) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch {}
+    }
+    throw new Error('Error al autenticar usuario');
+  }
+
+  const { passwordHash: _ph, salt: _s, ...restUser } = user as User & { password?: string };
+  delete (restUser as any).password;
+  const safeUser: SafeUser = {
+    id: restUser.id,
+    username: restUser.username,
+    email: restUser.email,
+    rol: restUser.rol,
+    profesionalId: restUser.profesionalId,
+    activo: Boolean(restUser.activo),
+    nombre: restUser.nombre,
+    mustChangePassword: Boolean(restUser.mustChangePassword),
+    createdAt: restUser.createdAt,
+    updatedAt: restUser.updatedAt
+  };
+
+  return {
+    success: true,
+    user: safeUser,
+    session,
+    rawToken
+  };
 }
 
 export async function authenticateUser(identifier: string, password: string): Promise<{ success: boolean; user?: User; error?: string }> {

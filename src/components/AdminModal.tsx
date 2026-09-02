@@ -139,7 +139,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const isAdmin = currentUser?.rol === 'admin' || currentUser?.rol === 'superadmin';
 
-  const [activeTab, setActiveTab] = useState<'agenda' | 'clientes' | 'profesionales' | 'horarios' | 'excepciones' | 'nuevo' | 'servicios' | 'promociones' | 'plantillas-beneficios' | 'beneficios' | 'stats'>('agenda');
+  const [activeTab, setActiveTab] = useState<'agenda' | 'clientes' | 'profesionales' | 'horarios' | 'excepciones' | 'nuevo' | 'servicios' | 'promociones' | 'plantillas-beneficios' | 'beneficios' | 'stats' | 'mi-cuenta'>('agenda');
 
   // Guard activeTab if switching users results in restricted tab
   useEffect(() => {
@@ -1332,6 +1332,18 @@ export const AdminModal: React.FC<AdminModalProps> = ({
               >
                 <TrendingUp className="w-3.5 h-3.5" />
                 <span>Métricas</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('mi-cuenta')}
+                className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                  activeTab === 'mi-cuenta'
+                    ? 'bg-[#8E4455] text-white shadow-xs'
+                    : 'text-[#5A4B43] hover:bg-[#FAF7F2]'
+                }`}
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>Mi cuenta</span>
               </button>
             </div>
 
@@ -2789,6 +2801,109 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: MI CUENTA */}
+              {activeTab === 'mi-cuenta' && (
+                <div className="max-w-2xl mx-auto space-y-6">
+                  {/* Account summary card */}
+                  <div className="bg-white p-6 rounded-3xl border border-[#E8DCD5] shadow-xs">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-10 h-10 rounded-2xl bg-[#FAF7F2] border border-[#E8DCD5] text-[#8E4455] flex items-center justify-center font-bold">
+                        {currentUser?.nombre ? currentUser.nombre[0].toUpperCase() : (currentUser?.username ? currentUser.username[0].toUpperCase() : 'U')}
+                      </div>
+                      <div>
+                        <h3 className="font-serif text-lg font-bold text-[#241E1A]">
+                          {currentUser?.nombre || currentUser?.username || 'Mi cuenta'}
+                        </h3>
+                        <p className="text-xs text-[#7A6B62]">
+                          Rol: <span className="font-semibold text-[#8E4455] capitalize">{currentUser?.rol}</span>
+                          {currentUser?.username && (
+                            <span className="ml-2 text-neutral-400">| Usuario: <span className="font-mono text-[#241E1A]">{currentUser.username}</span></span>
+                          )}
+                          {currentUser?.email && (
+                            <span className="ml-2 text-neutral-400">| {currentUser.email}</span>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-[#F0E6DE] pt-4">
+                      <h4 className="text-sm font-semibold text-[#241E1A] mb-1">
+                        Cambio Voluntario de Contraseña
+                      </h4>
+                      <p className="text-xs text-[#7A6B62] mb-4">
+                        Actualizá tu clave personal en cualquier momento. La nueva clave debe cumplir con la política de seguridad del estudio.
+                      </p>
+
+                      <form onSubmit={handlePasswordChangeSubmit} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-medium text-[#4A3E39] mb-1">Contraseña Actual *</label>
+                          <input
+                            type="password"
+                            value={currentPasswordInput}
+                            onChange={(e) => setCurrentPasswordInput(e.target.value)}
+                            placeholder="Tu contraseña actual"
+                            className="w-full px-3 py-2 bg-[#FAF7F2] border border-[#E8DCD5] rounded-xl text-xs text-[#241E1A] focus:outline-hidden focus:border-[#8E4455]"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-[#4A3E39] mb-1">Nueva Contraseña *</label>
+                          <input
+                            type="password"
+                            value={newPasswordInput}
+                            onChange={(e) => setNewPasswordInput(e.target.value)}
+                            placeholder="Nueva contraseña (8 a 16 caracteres)"
+                            className="w-full px-3 py-2 bg-[#FAF7F2] border border-[#E8DCD5] rounded-xl text-xs text-[#241E1A] focus:outline-hidden focus:border-[#8E4455]"
+                            required
+                          />
+                          <ul aria-label="Requisitos de contraseña" className="mt-2 space-y-1 text-[11px]">
+                            {passwordChecklist.map(item => (
+                              <li key={item.id} className={item.passed ? 'text-emerald-700 font-medium' : 'text-neutral-500'}>
+                                {item.passed ? '✓' : '•'} {item.label}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-medium text-[#4A3E39] mb-1">Confirmar Nueva Contraseña *</label>
+                          <input
+                            type="password"
+                            value={confirmPasswordInput}
+                            onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                            placeholder="Repetir nueva contraseña"
+                            className="w-full px-3 py-2 bg-[#FAF7F2] border border-[#E8DCD5] rounded-xl text-xs text-[#241E1A] focus:outline-hidden focus:border-[#8E4455]"
+                            required
+                          />
+                          {confirmPasswordInput && (
+                            <p role="status" className={confirmPasswordInput === newPasswordInput ? 'mt-1.5 text-xs text-emerald-700 font-medium' : 'mt-1.5 text-xs text-rose-600'}>
+                              {confirmPasswordInput === newPasswordInput ? '✓ Las contraseñas coinciden' : 'Las contraseñas no coinciden'}
+                            </p>
+                          )}
+                        </div>
+
+                        {passwordChangeError && (
+                          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700">
+                            {passwordChangeError}
+                          </div>
+                        )}
+
+                        <div className="pt-2 flex justify-end">
+                          <button
+                            type="submit"
+                            disabled={isChangingPassword}
+                            className="px-5 py-2.5 bg-[#8E4455] text-white font-medium rounded-xl text-xs hover:bg-[#783645] disabled:opacity-50 transition-colors cursor-pointer shadow-xs"
+                          >
+                            {isChangingPassword ? 'Actualizando contraseña...' : 'Actualizar Contraseña'}
+                          </button>
+                        </div>
+                      </form>
                     </div>
                   </div>
                 </div>

@@ -248,8 +248,8 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
       }
 
       // Handle user account association if requested
-      if (enableUserAuth && formEmail.trim()) {
-        const existingUser = usersList.find(u => u.profesionalId === savedProf.id || u.email === formEmail.trim());
+      if (enableUserAuth) {
+        const existingUser = usersList.find(u => u.profesionalId === savedProf.id || (formEmail.trim() && u.email === formEmail.trim()));
         if (existingUser) {
           // Update user
           await fetch(`/api/users/${existingUser.id}`, {
@@ -261,18 +261,28 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
               nombre: `${formNombre.trim()} ${formApellido.trim()}`,
               activo: formActivo,
               profesionalId: savedProf.id,
-              password: formUserPassword.trim() ? formUserPassword.trim() : undefined
+              email: formEmail.trim() || undefined
             })
           });
-        } else if (formUserPassword.trim()) {
+          if (formUserPassword.trim()) {
+            await fetch(`/api/users/${existingUser.id}/reset-password`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                newPassword: formUserPassword.trim()
+              })
+            });
+          }
+        } else {
           // Create user
           await fetch('/api/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
-              email: formEmail.trim(),
-              password: formUserPassword.trim(),
+              email: formEmail.trim() || undefined,
+              password: formUserPassword.trim() || undefined,
               rol: formUserRole,
               nombre: `${formNombre.trim()} ${formApellido.trim()}`,
               profesionalId: savedProf.id,

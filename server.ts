@@ -1,3 +1,4 @@
+import { generateProposedUsername } from "./src/server/clientMatching.js";
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -64,6 +65,8 @@ import {
   updateUser,
   deleteUser,
   authenticateUser,
+  authenticateAndCreateSession,
+  getEmployeeDefaultTempPassword,
   adminResetPassword,
   changeOwnPassword,
   getSchedules,
@@ -1191,24 +1194,24 @@ app.put("/api/servicios/:id/profesionales", async (req, res) => {
 app.post("/api/auth/login", authRateLimiter, async (req, res) => {
   try {
     const { username, email, identifier, password } = req.body;
-    const loginId = identifier || username || email;
-    if (!loginId || !password) {
+    const rawId = identifier || username || email;
+    if (typeof rawId !== 'string' || typeof password !== 'string' || !rawId.trim() || !password) {
       res.status(400).json({ error: "Usuario/email y contraseña requeridos" });
       return;
     }
-    const authResult = await authenticateUser(loginId, password);
-    if (!authResult.success || !authResult.user) {
+    const loginId = rawId.trim();
+    const authResult = await authenticateAndCreateSession(loginId, password);
+    if (!authResult.success || !authResult.user || !authResult.session || !authResult.rawToken) {
       res.status(401).json({ error: authResult.error || "Credenciales inválidas" });
       return;
     }
 
-    const { session, rawToken } = await createSession(authResult.user.id);
-    res.cookie(SESSION_COOKIE_NAME, rawToken, SESSION_COOKIE_OPTIONS);
+    res.cookie(SESSION_COOKIE_NAME, authResult.rawToken, SESSION_COOKIE_OPTIONS);
 
     res.json({
       message: "Autenticación exitosa",
       user: authResult.user,
-      sessionId: session.id
+      sessionId: authResult.session.id
     });
   } catch (error) {
     console.error("Error in POST /api/auth/login:", error);
@@ -1284,20 +1287,39 @@ app.get("/api/users", requireAdmin, async (req, res) => {
 // 24. POST /api/users (Admin)
 app.post("/api/users", requireAdmin, async (req, res) => {
   try {
-    const { username, email, password, rol, profesionalId, nombre, activo, mustChangePassword } = req.body;
-    if ((!username && !email) || !password || !rol) {
-      res.status(400).json({ error: "Username o email, password y rol son obligatorios" });
+    let { username, email, password, rol, profesionalId, nombre, activo, mustChangePassword } = req.body;
+
+    if (!username && nombre) {
+      const existingUsers = await getUsers(false);
+      const existingUsernames = existingUsers.map(u => u.username).filter(Boolean) as string[];
+      const parts = String(nombre).trim().split(' ');
+      const firstName = parts[0] || '';
+      const lastName = parts.slice(1).join(' ') || '';
+      username = generateProposedUsername(firstName, lastName, existingUsernames);
+    }
+
+    if (!password) {
+      const defaultTemp = getEmployeeDefaultTempPassword();
+      if (defaultTemp) {
+        password = defaultTemp;
+        mustChangePassword = true;
+      }
+    }
+
+    if (!username || !password || !rol) {
+      res.status(400).json({ error: "Username, password y rol son obligatorios" });
       return;
     }
+
     const created = await createUser({
-      username,
-      email,
+      username: username.trim(),
+      email: email && typeof email === 'string' && email.trim() ? email.trim() : undefined,
       password,
       rol,
       profesionalId,
-      nombre,
+      nombre: nombre && typeof nombre === 'string' ? nombre.trim() : undefined,
       activo: activo !== false,
-      mustChangePassword: !!mustChangePassword
+      mustChangePassword: mustChangePassword !== undefined ? Boolean(mustChangePassword) : false
     });
     res.status(201).json({
       id: created.id,
@@ -1318,7 +1340,23 @@ app.post("/api/users", requireAdmin, async (req, res) => {
 // 25. PUT /api/users/:id (Admin)
 app.put("/api/users/:id", requireAdmin, async (req, res) => {
   try {
-    const updated = await updateUser(req.params.id, req.body);
+    if (req.body.password || req.body.passwordHash || req.body.salt || req.body.mustChangePassword !== undefined) {
+      res.status(400).json({
+        error: "No se permite modificar credenciales mediante edición genérica. Utilice el endpoint de restablecimiento /api/users/:id/reset-password."
+      });
+      return;
+    }
+
+    const { nombre, rol, profesionalId, activo, username, email } = req.body;
+    const allowedUpdates: any = {};
+    if (nombre !== undefined) allowedUpdates.nombre = typeof nombre === 'string' ? nombre.trim() : nombre;
+    if (rol !== undefined) allowedUpdates.rol = rol;
+    if (profesionalId !== undefined) allowedUpdates.profesionalId = profesionalId;
+    if (activo !== undefined) allowedUpdates.activo = Boolean(activo);
+    if (username !== undefined) allowedUpdates.username = typeof username === 'string' ? username.trim() : username;
+    if (email !== undefined) allowedUpdates.email = typeof email === 'string' ? email.trim() : email;
+
+    const updated = await updateUser(req.params.id, allowedUpdates);
     if (!updated) {
       res.status(404).json({ error: "Usuario no encontrado" });
       return;
@@ -1342,10 +1380,15 @@ app.put("/api/users/:id", requireAdmin, async (req, res) => {
 // 25b. POST /api/users/:id/reset-password (Admin)
 app.post("/api/users/:id/reset-password", requireAdmin, async (req, res) => {
   try {
-    const { newPassword } = req.body;
+    let { newPassword } = req.body || {};
     if (!newPassword) {
-      res.status(400).json({ error: "Nueva contraseña requerida" });
-      return;
+      const defaultTemp = getEmployeeDefaultTempPassword();
+      if (defaultTemp) {
+        newPassword = defaultTemp;
+      } else {
+        res.status(400).json({ error: "Nueva contraseña requerida o configure EMPLOYEE_DEFAULT_TEMP_PASSWORD en el entorno." });
+        return;
+      }
     }
     const actorId = req.user?.id;
     const actorName = req.user?.nombre || req.user?.username || 'Administrador';

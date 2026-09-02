@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+Roadmap de seguimiento del propietario: [lista ordenada y estados](coordination/ROADMAP.md). Conservar numeración, distinguir implementación en rama de funcionamiento desplegado y mostrar nuevamente la lista completa cada vez que un tema se cierre. Esta vista resume el estado vigente sin borrar antecedentes.
+
 Autorización posterior del propietario: Antigravity CLI puede leer y procesar server.ts y src/server/db.ts, excluyendo secretos/datos de clientes. Diagnóstico ejecutado tras consentimiento confirmó view_file de db.ts y respuesta LECTURA_OK (exit 0). Se retoma coordinación; runner local captura rutas de herramientas para diagnosticar rechazos futuros. Esto no acredita aún la implementación transaccional pendiente.
 
 Diseño siguiente disponible en `coordination/tasks/AUTH-002-transaction-design.md`: unificar cambio/reset, revocación y auditoría; resolver competencia de creación de sesión. Inspección confirma reset sin revocación y helpers que silencian fallos. Pendiente implementación y PostgreSQL aislado; no están cubiertos por las pruebas previas del handler.

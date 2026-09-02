@@ -1,5 +1,7 @@
 # Backlog de coordinación
 
+Vista ordenada para el propietario: [Roadmap de soluciones y mejoras](ROADMAP.md). Repetir la lista completa al cerrar cada ítem, según evidencia y criterios de cierre de ese documento.
+
 Estado inicial: 2026-09-02. Esta rama contiene documentación; no cambia la aplicación ni dispara integración en main.
 
 | ID | Prioridad | Estado | Responsable | Objetivo |

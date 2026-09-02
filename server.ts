@@ -1224,7 +1224,7 @@ app.get("/api/auth/me", requireAuth, async (req, res) => {
 app.post("/api/auth/password-change", requireAuth, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    if (!currentPassword || !newPassword) {
+    if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
       res.status(400).json({ error: "Contraseña actual y nueva contraseña requeridas" });
       return;
     }
@@ -1237,6 +1237,15 @@ app.post("/api/auth/password-change", requireAuth, async (req, res) => {
     const isValidCurrent = verifyPassword(currentPassword, userFull.salt, userFull.passwordHash);
     if (!isValidCurrent) {
       res.status(400).json({ error: "La contraseña actual es incorrecta" });
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      res.status(400).json({ error: "La nueva contraseña debe ser distinta de la actual" });
+      return;
+    }
+    if (userFull.username && newPassword.toLowerCase() === userFull.username.trim().toLowerCase()) {
+      res.status(400).json({ error: "La nueva contraseña no puede coincidir con el nombre de usuario" });
       return;
     }
 

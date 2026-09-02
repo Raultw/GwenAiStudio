@@ -3548,7 +3548,10 @@ export async function createUser(userData: {
   activo?: boolean;
   mustChangePassword?: boolean;
 }): Promise<User> {
-  const passToValidate = userData.password || "Password123!";
+  if (typeof userData.password !== 'string' || userData.password.length === 0) {
+    throw new Error('Contraseña requerida.');
+  }
+  const passToValidate = userData.password;
   const policy = validatePasswordPolicy(passToValidate);
   if (!policy.valid) {
     throw new Error(policy.error);
@@ -3593,7 +3596,7 @@ export async function createUser(userData: {
         user.mustChangePassword
       ]);
     } catch (err) {
-      console.error('Error creating user in PostgreSQL:', err);
+      throw new Error('No se pudo guardar el usuario.');
     }
   }
 
@@ -3658,15 +3661,17 @@ export async function updateUser(id: string, updates: Partial<User> & { password
         updates.mustChangePassword !== undefined ? updates.mustChangePassword : null
       ]);
     } catch (err) {
-      console.error('Error updating user in PostgreSQL:', err);
+      throw new Error('No se pudo actualizar el usuario.');
     }
   }
 
   const idx = memoryDb.users.findIndex(u => u.id === id);
   if (idx !== -1) {
+    const { password: _password, ...safeUpdates } = updates;
+    const { password: _legacyPassword, ...storedUser } = memoryDb.users[idx] as User & { password?: string };
     memoryDb.users[idx] = {
-      ...memoryDb.users[idx],
-      ...updates,
+      ...storedUser,
+      ...safeUpdates,
       ...(updates.username ? { username: updates.username.trim() } : {}),
       ...hashUpdates,
       updatedAt: now

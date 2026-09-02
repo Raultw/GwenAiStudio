@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+Autorización posterior del propietario: Antigravity CLI puede leer y procesar server.ts y src/server/db.ts, excluyendo secretos/datos de clientes. Diagnóstico ejecutado tras consentimiento confirmó view_file de db.ts y respuesta LECTURA_OK (exit 0). Se retoma coordinación; runner local captura rutas de herramientas para diagnosticar rechazos futuros. Esto no acredita aún la implementación transaccional pendiente.
+
 Diseño siguiente disponible en `coordination/tasks/AUTH-002-transaction-design.md`: unificar cambio/reset, revocación y auditoría; resolver competencia de creación de sesión. Inspección confirma reset sin revocación y helpers que silencian fallos. Pendiente implementación y PostgreSQL aislado; no están cubiertos por las pruebas previas del handler.
 
 Validaciones contextuales publicadas en `6df6715`: tipos string/no vacíos, rechazo de clave nueva igual a actual o username; 17 casos aislados del handler aprobados. Sigue pendiente atomicidad conjunta y provisión/Mi cuenta. La revisión automática bloqueó el diagnóstico externo de Antigravity por considerar insuficiente el consentimiento específico para compartir código fuente; se pausa ese despacho, conservando continuidad local autorizada.

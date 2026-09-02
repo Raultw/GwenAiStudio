@@ -263,6 +263,8 @@ Esta copia en Git conserva las secciones históricas anteriores como contexto. E
 - SMTP Gmail y Resend tuvieron smoke tests reportados exitosos; eso no demuestra que el flujo de reserva/cancelación invoque el transporte correctamente.
 
 ### Plan retomado y criterios de avance
+AUTH-002, QA navegador real 2026-09-02: login, recarga completa/reapertura del panel, catálogo y creación de plantilla funcionan con la cuenta nueva. Plantilla QA desactivada y sesión de prueba cerrada. No reproducidos fallos históricos; pendientes expiración, roles, errores y revisión de carreras. Ver coordination/reviews/AUTH-002-browser.md. No confundir esta evidencia con corrección de código o SHA desplegado verificado.
+
 Avance SEC-002: aislamiento de la suite de autenticación aprobado en 52db6fd, aún sin merge. Ejecución aislada de 39 pruebas exitosa y JSON del proyecto intacto; cierre posterior a cleanup corregido por el revisor. TypeScript global pendiente por dependencia node-fetch ausente en otra suite. Retomar AUTH-002: no confundir pruebas unitarias con recarga real del navegador o creación de plantillas.
 
 1. AUTH-002 — Primera prioridad autorizada: reproducir y corregir sesión al recargar, reconocimiento de superadmin en permisos administrativos, carga y creación de tipos de beneficio. Diferenciar lista vacía de fallo real; no ocultar 401/403 como ausencia de registros. Mantener estética.

@@ -26,6 +26,8 @@ AUTH-002: **CHANGES_REQUESTED** sobre 2c43de1. Suites existentes y tsc/build apr
 
 Corrección posterior: 093a9d5/3026891 resuelve los hallazgos de provisión y UI; alcance aprobado, AUTH-002 permanece REVIEW. Próximo: último superadmin transaccional y QA integrado. Ver reviews/AUTH-002-corrections-20260903.md.
 
+Avance 1def4ab: updateUser protege concurrentemente al último superadmin; alcance aprobado. Pendiente inmediato: bootstrap PostgreSQL en conexión única y suite aislada. Luego integración/QA. Ver reviews/AUTH-002-superadmin-update-20260903.md.
+
 - Auditoría local: 75 archivos versionados, árbol limpio y baseline `055e5f6`.
 - `data/gwen_db.json` contiene credenciales, hashes, sesiones y contactos. No copiar valores a tareas ni comentarios.
 - Los reportes anteriores de suites exitosas no sustituyen pruebas sobre este baseline.

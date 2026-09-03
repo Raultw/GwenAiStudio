@@ -304,6 +304,8 @@ Cada etapa requiere evidencia reproducible y revisión; actualizar este document
 
 ### Acceso para QA
 
+Avance 2026-09-03 commit 1def4ab: desactivación/degradación del último superadmin serializada en updateUser mediante una transacción PostgreSQL con conexión única/advisory lock/FOR UPDATE; mutex equivalente en memoria. 66 pruebas AUTH-002 aisladas y tsc pasan. Falta bootstrap de conexión única y QA real; no integrado.
+
 Corrección AUTH-002 2026-09-03: 093a9d5/3026891 fuerza cambio inicial en altas administrativas, excluye credenciales de updateUser, valida respuestas de cuenta y evita duplicar profesional tras fallo parcial. Pruebas aisladas/typecheck/build aprobados. Aún no integrado ni desplegado; faltan superadmin concurrente y QA PostgreSQL/navegador/Render. Automatización permanece pausada.
 
 Requisito reafirmado 2026-09-03 (BOOK-003, roadmap 7 y 12): confirmar reserva mostrando código y clave de gestión con invitación a guardar o capturar esos datos; repetirlos en email junto al detalle del turno y enlace seguro directo a gestionar cancelación. Abrir enlace no cancela: requiere confirmación explícita. Conservar estética; no confundir código de reserva con promoción. El destino del enlace debe implementarse y verificarse antes de enviar correos que lo incluyan. Inspección de 2c43de1 solo acredita código visible; clave, aviso y conexión de email de reserva pendientes de completar/verificar.

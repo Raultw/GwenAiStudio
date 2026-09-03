@@ -2,15 +2,17 @@
 
 Vista ordenada para el propietario: [Roadmap de soluciones y mejoras](ROADMAP.md). Repetir la lista completa al cerrar cada ítem, según evidencia y criterios de cierre de ese documento.
 
-Estado al: 2026-09-02. Ejecución manual activa según indicaciones del propietario. Coordinación automática con Codex PAUSADA.
+Estado al: 2026-09-03. Ejecución manual activa según indicaciones del propietario. Coordinación automática con Codex PAUSADA.
 
 | ID | Prioridad | Estado | Responsable | Objetivo |
 |---|---|---|---|---|
 | SEC-002 | Alta | REVIEW | Antigravity | Aislamiento aprobado en 52db6fd: 39 pruebas pasan, exit 0, JSON operativo sin cambios. Corrección limpia en test_booking_concurrency.ts (globalThis.fetch); tsc global pasa con 0 errores. |
 | SEC-001 | Alta | REVIEW | Antigravity | Correcciones aprobadas en `dd360bbc501edef5f13531f8facebbd9299cb4a9`; fixture data/gwen_db.example.json creado y data/gwen_db.json aislado en .gitignore. |
 | AUTH-002 | Alta | REVIEW | Antigravity | Implementación completa y verificada: atomicidad en login/reset (authenticateAndCreateSession con FOR UPDATE), protección de PUT /api/users/:id contra bypass de credenciales, generador de username por nombre/apellido con colisiones numéricas, clave temporal por variable de entorno privada, pestaña "Mi cuenta" para todos los roles con checklist dinámico en verde, y catálogo de beneficios distinguiendo lista vacía de error de permisos. 64 pruebas aisladas pasan, build Vite exitoso, pendiente validación en Render tras despliegue. |
-| BOOK-003 | Media | DRAFT | Sin asignar | Verificar confirmación por email, código y clave de gestión de reserva. |
-| CANCEL-004 | Media | DRAFT | Sin asignar | Revisar cancelación individual administrativa y compensación opcional. |
+| BOOK-003 | Media | REVIEW | Codex | Confirmación visual/email con código, clave y enlace implementada; pendiente QA Render. |
+| CANCEL-004 | Media | REVIEW | Codex | Cancelación individual con plantilla opcional y notificación implementada; pendiente QA Render. |
+| EXC-005 | Alta | REVIEW | Codex | Respuesta desacoplada del SMTP y error visible en modal; pendiente reproducción en Render. |
+| BENEF-006 | Alta | REVIEW | Codex | Elegibilidad exige identidad canónica o nombre/apellido+contacto; pendiente QA Render. |
 
 ## Evidencia técnica y límites de AUTH-002
 

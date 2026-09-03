@@ -35,6 +35,22 @@ export interface CancellationNotificationData {
   beneficio?: CancellationBenefitSnapshot;
 }
 
+export interface ConfirmationNotificationData {
+  appointmentId: string;
+  codigo: string;
+  managementKey: string;
+  managementUrl: string;
+  clienteNombre: string;
+  clienteApellido?: string;
+  clienteEmail?: string;
+  servicioNombre: string;
+  fecha: string;
+  horaInicio: string;
+  horaFin: string;
+  profesionalNombre?: string;
+  precioFinal?: number;
+}
+
 export interface NotificationSendOptions {
   idempotencyKey?: string;
   channels?: NotificationChannel[];

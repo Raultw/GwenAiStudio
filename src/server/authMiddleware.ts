@@ -133,7 +133,7 @@ export function requireRole(allowedRoles: UserRole[]) {
 }
 
 export const requireAdmin = requireRole(['superadmin', 'admin']);
-export const requireAdminOrProfessional = requireRole(['superadmin', 'admin', 'profesional', 'empleado']);
+export const requireAdminOrProfessional = requireRole(['superadmin', 'admin', 'professional', 'profesional', 'empleado']);
 
 /**
  * Verifica si el usuario autenticado tiene permiso para acceder o modificar los recursos del profesionalId indicado.
@@ -143,7 +143,7 @@ export const requireAdminOrProfessional = requireRole(['superadmin', 'admin', 'p
 export function enforceProfessionalScope(req: Request, targetProfesionalId?: string | null): boolean {
   if (!req.authContext) return false;
   if (req.authContext.role === 'superadmin' || req.authContext.role === 'admin') return true;
-  if (req.authContext.role === 'profesional' || req.authContext.role === 'empleado') {
+  if (req.authContext.role === 'professional' || req.authContext.role === 'profesional' || req.authContext.role === 'empleado') {
     if (!targetProfesionalId) return false;
     return req.authContext.profesionalId === targetProfesionalId;
   }

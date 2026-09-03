@@ -3,11 +3,12 @@ import type { Transporter } from 'nodemailer';
 import { NotificationProvider } from './provider.interface';
 import { 
   CancellationNotificationData, 
+  ConfirmationNotificationData,
   NotificationChannel, 
   NotificationResult, 
   NotificationSendOptions 
 } from './types';
-import { generateCancellationHtml, generateCancellationPlainText } from './emailTemplate';
+import { generateCancellationHtml, generateCancellationPlainText, generateConfirmationHtml, generateConfirmationPlainText } from './emailTemplate';
 
 export interface SmtpConfig {
   host: string;
@@ -121,6 +122,25 @@ export class SmtpEmailNotificationProvider implements NotificationProvider {
         idempotencyKey: options?.idempotencyKey,
         sentAt: undefined
       };
+    }
+  }
+
+  async sendConfirmation(data: ConfirmationNotificationData, options?: NotificationSendOptions): Promise<NotificationResult> {
+    const recipient = (data.clienteEmail || '').trim();
+    const subject = `Confirmación de Turno - Gwen Nails (Reserva #${data.codigo})`;
+    if (!recipient) return { channel: this.channel, recipient: 'sin_email', status: 'omitido_sin_email', success: true, idempotencyKey: options?.idempotencyKey };
+    try {
+      const info = await this.getTransporter().sendMail({
+        from: this.config?.from || 'Gwen Nails <notificaciones@gwennails.com>',
+        to: recipient,
+        subject,
+        text: generateConfirmationPlainText(data),
+        html: generateConfirmationHtml(data),
+        headers: options?.idempotencyKey ? { 'X-Idempotency-Key': options.idempotencyKey } : undefined
+      });
+      return { channel: this.channel, recipient, status: 'sent', success: true, subject, providerMessageId: info?.messageId, idempotencyKey: options?.idempotencyKey, sentAt: new Date().toISOString() };
+    } catch (err: any) {
+      return { channel: this.channel, recipient, status: 'failed', success: false, subject, error: err?.message || 'smtp_error', idempotencyKey: options?.idempotencyKey };
     }
   }
 }

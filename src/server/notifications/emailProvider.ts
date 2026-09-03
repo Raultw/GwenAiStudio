@@ -1,6 +1,7 @@
 import { NotificationProvider } from './provider.interface.js';
 import { 
   CancellationNotificationData, 
+  ConfirmationNotificationData,
   NotificationChannel, 
   NotificationResult, 
   NotificationSendOptions 
@@ -84,6 +85,16 @@ export class EmailNotificationProvider implements NotificationProvider {
     options?: NotificationSendOptions
   ): Promise<NotificationResult> {
     return this.delegate.sendCancellation(data, options);
+  }
+
+  public async sendConfirmation(
+    data: ConfirmationNotificationData,
+    options?: NotificationSendOptions
+  ): Promise<NotificationResult> {
+    if (!this.delegate.sendConfirmation) {
+      return { channel: this.channel, recipient: data.clienteEmail || 'sin_email', status: 'failed', success: false, error: 'confirmation_not_supported', idempotencyKey: options?.idempotencyKey };
+    }
+    return this.delegate.sendConfirmation(data, options);
   }
 }
 

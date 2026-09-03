@@ -464,9 +464,10 @@ export interface StudioConfig {
   };
   intervaloMinutos: number; // e.g. 30
   bufferMinutos: number; // e.g. 0 or 15
-  pinAdmin: string;
   diasInactividadCliente?: number; // Días sin visitas para considerar cliente inactivo (default: 60)
   minTurnosRecurrente?: number; // Cantidad mínima de turnos para considerar cliente recurrente (default: 2)
+  plazoCancelacionHoras?: number; // Anticipación mínima para autocancelación pública
+  cooldownPromocionesDias?: number; // Espera global entre usos de códigos públicos
 }
 
 export interface DashboardStats {

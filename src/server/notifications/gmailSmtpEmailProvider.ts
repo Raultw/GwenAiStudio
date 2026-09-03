@@ -2,13 +2,16 @@ import nodemailer from 'nodemailer';
 import { NotificationProvider } from './provider.interface.js';
 import { 
   CancellationNotificationData, 
+  ConfirmationNotificationData,
   NotificationChannel, 
   NotificationResult, 
   NotificationSendOptions 
 } from './types.js';
 import { 
   generateCancellationHtml, 
-  generateCancellationPlainText 
+  generateCancellationPlainText,
+  generateConfirmationHtml,
+  generateConfirmationPlainText
 } from './emailTemplate.js';
 
 export interface GmailSmtpProviderConfig {
@@ -430,5 +433,17 @@ export class GmailSmtpEmailNotificationProvider implements NotificationProvider 
         sentAt: undefined
       };
     }
+  }
+
+  async sendConfirmation(data: ConfirmationNotificationData, options?: NotificationSendOptions): Promise<NotificationResult> {
+    const prefix = this.getSubjectPrefix();
+    const baseSubject = `Confirmación de Turno - Gwen Nails (Reserva #${data.codigo})`;
+    return this.sendTestEmail(
+      data.clienteEmail || '',
+      prefix ? `${prefix} ${baseSubject}` : baseSubject,
+      generateConfirmationHtml(data),
+      generateConfirmationPlainText(data),
+      options
+    );
   }
 }

@@ -308,3 +308,12 @@ Recuperaci├│n y consolidaci├│n autorizadas ejecutadas: una cuenta nueva 
 Actualizaci├│n del propietario: todos los datos del entorno son ficticios/de testing; autoriza creaci├│n, modificaci├│n y limpieza acotada de registros para pruebas. No implica destrucci├│n de bases completas, infraestructura ni env├¡os a terceros. Se prepar├│ un archivo privado local fuera del repositorio, protegido por permisos de Windows; pendiente de completar. AUTH-002 no necesita credenciales SMTP/Resend ni acceso directo a Neon.
 
 No almacenar secretos en Git, informes o chat. Para QA completo del panel hace falta una cuenta dedicada de prueba con rol superadmin y entorno/datos de prueba identificados. Login manual del propietario permite QA de esa sesi├│n, pero no automatizaci├│n de futuros logins; para eso se requiere almac├⌐n local de secretos ignorado y autorizado. PostgreSQL de integraci├│n debe estar separado de Neon operativo; no se requiere compartir credenciales de Neon para inspecci├│n est├ítica o pruebas aisladas.
+# Actualización 2026-09-03 — gestión pública, descuentos y seguridad
+
+- La confirmación de reserva genera código público y clave de gestión aleatoria; solo se persiste el hash scrypt de la clave. Pantalla y email indican guardar o capturar ambos datos e incluyen acceso a gestión.
+- La clienta puede verificar y cancelar con código+clave. La vista del turno aparece solo después de validar y el plazo mínimo se toma de `plazoCancelacionHoras`.
+- Los códigos públicos respetan `cooldownPromocionesDias` global por clienta, independiente de la caducidad de cada promoción. Consumir una compensación individual no modifica este cooldown.
+- Los beneficios públicos no se descubren por email o teléfono aislado: se requiere cliente canónico o nombre y apellido exactos junto con un contacto normalizado.
+- La cancelación individual administrativa admite una plantilla activa opcional; las cancelaciones por excepción responden tras el commit y no esperan al transporte de email.
+- La configuración administrativa incluye teléfono, WhatsApp, plazo de cancelación y cooldown global.
+- Se eliminó el PIN legado del modelo/configuración y se protegieron rutas administrativas con RBAC. Las cuentas internas continúan usando usuario y contraseña con sesión HttpOnly.

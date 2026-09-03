@@ -112,6 +112,54 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     managementKey: string;
     whatsappUrl: string;
   } | null>(null);
+  const [showManagement, setShowManagement] = useState(false);
+  const [managementCode, setManagementCode] = useState('');
+  const [managementKeyInput, setManagementKeyInput] = useState('');
+  const [managedAppointment, setManagedAppointment] = useState<Pick<Appointment, 'codigo' | 'servicioNombre' | 'fecha' | 'horaInicio' | 'horaFin' | 'profesionalNombre' | 'estado'> | null>(null);
+  const [managementError, setManagementError] = useState<string | null>(null);
+  const [managementLoading, setManagementLoading] = useState(false);
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('gestionarTurno');
+    if (code) {
+      setManagementCode(code.toUpperCase());
+      setShowManagement(true);
+      setTimeout(() => sectionRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+    }
+  }, []);
+
+  const verifyManagedAppointment = async () => {
+    setManagementLoading(true);
+    setManagementError(null);
+    try {
+      const response = await fetch('/api/turnos/gestionar/verificar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: managementCode, clave: managementKeyInput })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'No pudimos validar los datos.');
+      setManagedAppointment(data.turno);
+    } catch (error: any) {
+      setManagedAppointment(null);
+      setManagementError(error.message);
+    } finally { setManagementLoading(false); }
+  };
+
+  const cancelManagedAppointment = async () => {
+    setManagementLoading(true);
+    setManagementError(null);
+    try {
+      const response = await fetch('/api/turnos/gestionar/cancelar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: managementCode, clave: managementKeyInput })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'No pudimos cancelar el turno.');
+      setManagedAppointment(previous => previous ? { ...previous, estado: 'cancelado' } : previous);
+    } catch (error: any) {
+      setManagementError(error.message);
+    } finally { setManagementLoading(false); }
+  };
 
   // Automatically scroll to the confirmed booking card when reservation succeeds
   useEffect(() => {
@@ -313,9 +361,9 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
   useEffect(() => {
     const cleanTel = telefono.trim();
     const cleanMail = email.trim();
-    const bId = getBrowserId();
-
-    if (!cleanTel && !cleanMail && !bId) {
+    const cleanName = nombre.trim();
+    const cleanSurname = apellido.trim();
+    if (!cleanName || !cleanSurname || (!cleanTel && !cleanMail)) {
       setAvailableBenefits([]);
       setSelectedBenefitId(null);
       return;
@@ -325,6 +373,8 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
       setIsLoadingBenefits(true);
       try {
         const queryParams = new URLSearchParams();
+        queryParams.set('nombre', cleanName);
+        queryParams.set('apellido', cleanSurname);
         if (cleanTel) queryParams.set('telefono', cleanTel);
         if (cleanMail) queryParams.set('email', cleanMail);
         if (selectedServiceId) queryParams.set('servicioId', selectedServiceId);
@@ -346,7 +396,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     }, 400);
 
     return () => clearTimeout(timer);
-  }, [telefono, email, selectedServiceId, selectedService]);
+  }, [nombre, apellido, telefono, email, selectedServiceId, selectedService]);
 
   // Aplicar código promocional público
   const handleApplyPromoCode = async () => {
@@ -505,8 +555,14 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
     if (!apellido.trim() || apellido.trim().length < 2) {
       newErrors.apellido = 'Ingresá un apellido válido.';
     }
-    if (!telefono.trim() || !/^[\d\-\+\s]{7,20}$/.test(telefono.trim())) {
+    if (!telefono.trim() && !email.trim()) {
+      newErrors.telefono = 'Ingresá un teléfono o un email para poder contactarte.';
+      newErrors.email = 'Ingresá un email o un teléfono para poder contactarte.';
+    } else if (telefono.trim() && !/^[\d\-\+\s]{7,20}$/.test(telefono.trim())) {
       newErrors.telefono = 'Ingresá un teléfono válido (ej: 011-1565852012).';
+    }
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      newErrors.email = 'Ingresá un email válido.';
     }
 
     setErrors(newErrors);
@@ -670,6 +726,37 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
           </p>
         </div>
 
+        <div className="max-w-2xl mx-auto mb-8 text-center">
+          <button type="button" onClick={() => setShowManagement(value => !value)} className="text-sm font-semibold text-[#8E4455] underline underline-offset-4">
+            {showManagement ? 'Cerrar gestión de turno' : '¿Necesitás gestionar o cancelar una reserva?'}
+          </button>
+        </div>
+
+        {showManagement && (
+          <div className="max-w-2xl mx-auto mb-10 rounded-3xl border border-[#E8DCD5] bg-white p-6 sm:p-8 shadow-sm">
+            <h3 className="font-serif text-2xl text-[#241E1A] mb-2">Gestionar mi turno</h3>
+            <p className="text-xs text-[#7A6B62] mb-5">Ingresá el código de reserva y la clave de gestión que guardaste o recibiste por email.</p>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <input value={managementCode} onChange={event => setManagementCode(event.target.value.toUpperCase())} placeholder="Código de reserva" className="rounded-xl border border-[#D9C9BF] bg-[#FAF7F2] p-3 text-sm font-mono" />
+              <input value={managementKeyInput} onChange={event => setManagementKeyInput(event.target.value.toUpperCase())} placeholder="Clave de gestión" className="rounded-xl border border-[#D9C9BF] bg-[#FAF7F2] p-3 text-sm font-mono" />
+            </div>
+            {!managedAppointment && <button type="button" disabled={managementLoading || !managementCode || !managementKeyInput} onClick={verifyManagedAppointment} className="mt-4 rounded-full bg-[#8E4455] px-5 py-3 text-xs font-semibold text-white disabled:opacity-50">Verificar turno</button>}
+            {managementError && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-xs text-rose-700">{managementError}</p>}
+            {managedAppointment && (
+              <div className="mt-5 rounded-2xl border border-[#E8DCD5] bg-[#FAF7F2] p-5 text-sm space-y-2">
+                <p><strong>Servicio:</strong> {managedAppointment.servicioNombre}</p>
+                <p><strong>Fecha:</strong> {isoDateToAR(managedAppointment.fecha)}</p>
+                <p><strong>Hora:</strong> {managedAppointment.horaInicio}</p>
+                {managedAppointment.estado === 'cancelado' ? (
+                  <p className="font-semibold text-emerald-700">El turno está cancelado.</p>
+                ) : (
+                  <button type="button" disabled={managementLoading} onClick={cancelManagedAppointment} className="mt-3 rounded-full bg-rose-700 px-5 py-3 text-xs font-semibold text-white disabled:opacity-50">Confirmar cancelación</button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Confirmation Success Modal / View */}
         {confirmedBooking ? (
           <div ref={confirmationRef} className="max-w-2xl mx-auto bg-white rounded-3xl p-8 sm:p-12 border border-[#E8DCD5] shadow-xl text-center animate-in zoom-in-95 duration-300 scroll-mt-24">
@@ -769,6 +856,19 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
             {/* Actions */}
             <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6">
+              <button
+                type="button"
+                onClick={() => {
+                  setManagementCode(confirmedBooking.turno.codigo);
+                  setManagementKeyInput(confirmedBooking.managementKey);
+                  setManagedAppointment(null);
+                  setShowManagement(true);
+                  setConfirmedBooking(null);
+                }}
+                className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-full bg-[#8E4455] text-white text-sm font-medium hover:bg-[#783645] transition-all"
+              >
+                Gestionar o cancelar turno
+              </button>
               <a
                 href={createGoogleCalendarLink(confirmedBooking.turno)}
                 target="_blank"
@@ -1188,7 +1288,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-xs font-medium text-[#4A3E39] mb-1.5">
-                      Teléfono / WhatsApp *
+                      Teléfono / WhatsApp <span className="text-[#8C7A70] font-normal">(teléfono o email obligatorio)</span>
                     </label>
                     <div className="relative">
                       <Phone className="w-4 h-4 text-[#8C7A70] absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -1207,7 +1307,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
                   <div>
                     <label className="block text-xs font-medium text-[#4A3E39] mb-1.5">
-                      Email <span className="text-[#8C7A70] font-normal">(Opcional)</span>
+                      Email <span className="text-[#8C7A70] font-normal">(teléfono o email obligatorio)</span>
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-[#8C7A70] absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -1216,9 +1316,10 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         placeholder="ejemplo@correo.com"
-                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-sm text-[#241E1A] placeholder-[#A6978E] focus:outline-none focus:border-[#8E4455] focus:bg-white transition-all"
+                        className={`w-full pl-10 pr-4 py-3 rounded-xl bg-[#FAF7F2] border text-sm text-[#241E1A] placeholder-[#A6978E] focus:outline-none focus:bg-white transition-all ${errors.email ? 'border-rose-400 bg-rose-50/30' : 'border-[#D9C9BF] focus:border-[#8E4455]'}`}
                       />
                     </div>
+                    {errors.email && <p className="mt-1 text-xs text-rose-600">{errors.email}</p>}
                   </div>
                 </div>
 

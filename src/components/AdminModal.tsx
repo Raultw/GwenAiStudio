@@ -139,7 +139,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
 
   const isAdmin = currentUser?.rol === 'admin' || currentUser?.rol === 'superadmin';
 
-  const [activeTab, setActiveTab] = useState<'agenda' | 'clientes' | 'profesionales' | 'horarios' | 'excepciones' | 'nuevo' | 'servicios' | 'promociones' | 'plantillas-beneficios' | 'beneficios' | 'stats' | 'mi-cuenta'>('agenda');
+  const [activeTab, setActiveTab] = useState<'agenda' | 'clientes' | 'profesionales' | 'horarios' | 'excepciones' | 'nuevo' | 'servicios' | 'promociones' | 'plantillas-beneficios' | 'beneficios' | 'stats' | 'configuracion' | 'mi-cuenta'>('agenda');
 
   // Guard activeTab if switching users results in restricted tab
   useEffect(() => {
@@ -175,6 +175,23 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [dbStatus, setDbStatus] = useState<{ postgresConnected: boolean; driver: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+
+  const saveOperationalConfig = async () => {
+    if (!config) return;
+    setIsSavingConfig(true);
+    try {
+      const response = await fetch('/api/config', {
+        method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config)
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || 'No se pudo guardar la configuración.');
+      setConfig(data);
+      showAdminToast('Configuración guardada correctamente.');
+    } catch (error: any) {
+      showAdminToast(error.message || 'Error al guardar la configuración.', 'error');
+    } finally { setIsSavingConfig(false); }
+  };
 
   // Filters for Agenda (default to current date and 'pendiente' status)
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -583,7 +600,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
   const handleUpdateStatus = async (
     id: string,
     newStatus: AppointmentStatus,
-    cancelMeta?: { motivo?: string; origen?: string; canceladoPor?: string }
+    cancelMeta?: { motivo?: string; origen?: string; canceladoPor?: string; benefitTemplateId?: string }
   ) => {
     try {
       const cleanId = (id || '').trim();
@@ -596,6 +613,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({
             motivo: cancelMeta?.motivo || 'Cancelado por administración',
             origen: cancelMeta?.origen || 'agenda',
             canceladoPor: cancelMeta?.canceladoPor || 'Administración'
+            ,benefitTemplateId: cancelMeta?.benefitTemplateId || undefined
           })
         });
       } else {
@@ -1333,6 +1351,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                 <TrendingUp className="w-3.5 h-3.5" />
                 <span>Métricas</span>
               </button>
+
+              {isAdmin && (
+                <button
+                  onClick={() => setActiveTab('configuracion')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${activeTab === 'configuracion' ? 'bg-[#8E4455] text-white shadow-xs' : 'text-[#5A4B43] hover:bg-[#FAF7F2]'}`}
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>Configuración</span>
+                </button>
+              )}
 
               <button
                 onClick={() => setActiveTab('mi-cuenta')}
@@ -2802,6 +2830,32 @@ export const AdminModal: React.FC<AdminModalProps> = ({
                         </div>
                       ))}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'configuracion' && isAdmin && config && (
+                <div className="max-w-3xl mx-auto space-y-5">
+                  <div className="bg-white p-6 rounded-3xl border border-[#E8DCD5] shadow-xs space-y-5">
+                    <div>
+                      <h3 className="font-serif text-xl font-bold text-[#241E1A]">Configuración operativa</h3>
+                      <p className="text-xs text-[#7A6B62]">Datos de contacto y reglas globales para reservas y descuentos.</p>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      <label className="text-xs font-medium text-[#4A3E39]">Teléfono del salón
+                        <input value={config.telefono || ''} onChange={event => setConfig({ ...config, telefono: event.target.value })} className="mt-1 w-full rounded-xl border border-[#D9C9BF] bg-[#FAF7F2] p-3" />
+                      </label>
+                      <label className="text-xs font-medium text-[#4A3E39]">WhatsApp del salón
+                        <input value={config.whatsapp || ''} onChange={event => setConfig({ ...config, whatsapp: event.target.value })} className="mt-1 w-full rounded-xl border border-[#D9C9BF] bg-[#FAF7F2] p-3" />
+                      </label>
+                      <label className="text-xs font-medium text-[#4A3E39]">Anticipación mínima para cancelar (horas)
+                        <input type="number" min="0" max="720" value={config.plazoCancelacionHoras ?? 24} onChange={event => setConfig({ ...config, plazoCancelacionHoras: Number(event.target.value) })} className="mt-1 w-full rounded-xl border border-[#D9C9BF] bg-[#FAF7F2] p-3" />
+                      </label>
+                      <label className="text-xs font-medium text-[#4A3E39]">Espera global entre códigos (días)
+                        <input type="number" min="0" max="730" value={config.cooldownPromocionesDias ?? 30} onChange={event => setConfig({ ...config, cooldownPromocionesDias: Number(event.target.value) })} className="mt-1 w-full rounded-xl border border-[#D9C9BF] bg-[#FAF7F2] p-3" />
+                      </label>
+                    </div>
+                    <div className="flex justify-end"><button type="button" disabled={isSavingConfig} onClick={saveOperationalConfig} className="rounded-xl bg-[#8E4455] px-5 py-2.5 text-xs font-semibold text-white disabled:opacity-50">{isSavingConfig ? 'Guardando...' : 'Guardar configuración'}</button></div>
                   </div>
                 </div>
               )}

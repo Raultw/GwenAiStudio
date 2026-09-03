@@ -333,9 +333,10 @@ export const defaultStudioConfig: StudioConfig = {
   },
   intervaloMinutos: 30,
   bufferMinutos: 0,
-  pinAdmin: "1234",
   diasInactividadCliente: 60,
-  minTurnosRecurrente: 2
+  minTurnosRecurrente: 2,
+  plazoCancelacionHoras: 24,
+  cooldownPromocionesDias: 30
 };
 
 // Default initial promotions
@@ -2528,6 +2529,17 @@ export async function getAppointmentById(id: string): Promise<Appointment | null
   return found || null;
 }
 
+export async function getAppointmentManagementKeyHash(appointmentId: string): Promise<string | null> {
+  const cleanId = (appointmentId || '').trim();
+  if (!cleanId) return null;
+  if (isPostgresConnected && pgPool) {
+    const result = await pgPool.query('SELECT management_key_hash FROM appointments WHERE id = $1 OR codigo = $1 LIMIT 1', [cleanId]);
+    return result.rows[0]?.management_key_hash || null;
+  }
+  const appointment = memoryDb.appointments.find(item => item.id === cleanId || item.codigo === cleanId);
+  return appointment ? (memoryDb.appointmentManagementKeyHashes[appointment.id] || null) : null;
+}
+
 function mapAppointmentRow(row: any): Appointment {
   return {
     id: row.id,
@@ -2600,6 +2612,7 @@ export async function createAppointment(
   if (apt.precioFinal == null) {
     apt.precioFinal = originalPrice;
   }
+  const globalPromotionCooldownDays = Math.max(0, Number((await getStudioConfig()).cooldownPromocionesDias || 0));
 
   if (isPostgresConnected && pgPool) {
     const client = await pgPool.connect();
@@ -2723,6 +2736,24 @@ export async function createAppointment(
         `, [promo.id, apt.clienteId || null, cleanPhone, cleanEmail]);
 
         const clientUsages = clientUsagesRes.rows;
+
+        if (globalPromotionCooldownDays > 0) {
+          const globalUsageRes = await client.query(`
+            SELECT fecha_uso FROM promotion_usages
+            WHERE (($1::varchar IS NOT NULL AND cliente_id = $1) OR
+                   ($2::varchar != '' AND cliente_telefono = $2) OR
+                   ($3::varchar != '' AND cliente_email = $3))
+            ORDER BY fecha_uso DESC LIMIT 1
+          `, [apt.clienteId || null, cleanPhone, cleanEmail]);
+          if (globalUsageRes.rows.length > 0) {
+            const lastDate = new Date(globalUsageRes.rows[0].fecha_uso).getTime();
+            const reusableDate = new Date(lastDate + globalPromotionCooldownDays * 86400000);
+            if (Date.now() < reusableDate.getTime()) {
+              await client.query('ROLLBACK');
+              throw new Error(`Usaste un código de descuento dentro de los últimos ${globalPromotionCooldownDays} días. Podrás volver a usar códigos a partir del ${formatDateAR(reusableDate)}.`);
+            }
+          }
+        }
 
         // Reuse period in days check
         if (promo.periodo_reutilizacion_dias != null && promo.periodo_reutilizacion_dias > 0 && clientUsages.length > 0) {
@@ -3017,6 +3048,21 @@ export async function createAppointment(
         (cleanEmail && u.clienteEmail === cleanEmail)
       )
     ).sort((a, b) => b.fechaUso.localeCompare(a.fechaUso));
+
+    if (globalPromotionCooldownDays > 0) {
+      const globalUsages = (memoryDb.promotionUsages || []).filter(u =>
+        (apt.clienteId && u.clienteId === apt.clienteId) ||
+        (cleanPhone && u.clienteTelefono === cleanPhone) ||
+        (cleanEmail && u.clienteEmail === cleanEmail)
+      ).sort((a, b) => b.fechaUso.localeCompare(a.fechaUso));
+      if (globalUsages.length > 0) {
+        const lastDate = new Date(globalUsages[0].fechaUso).getTime();
+        const reusableDate = new Date(lastDate + globalPromotionCooldownDays * 86400000);
+        if (Date.now() < reusableDate.getTime()) {
+          throw new Error(`Usaste un código de descuento dentro de los últimos ${globalPromotionCooldownDays} días. Podrás volver a usar códigos a partir del ${formatDateAR(reusableDate)}.`);
+        }
+      }
+    }
 
     if (promo.periodoReutilizacionDias != null && promo.periodoReutilizacionDias > 0 && clientUsages.length > 0) {
       const lastUsage = clientUsages[0];
@@ -6576,6 +6622,36 @@ export async function validatePromotion(params: {
       ).sort((a, b) => b.fechaUso.localeCompare(a.fechaUso));
     }
 
+    const globalCooldownDays = Math.max(0, Number((await getStudioConfig()).cooldownPromocionesDias || 0));
+    if (globalCooldownDays > 0) {
+      let lastGlobalUsage: PromotionUsage | undefined;
+      if (isPostgresConnected && pgPool) {
+        const globalRes = await pgPool.query(`
+          SELECT * FROM promotion_usages
+          WHERE (($1::varchar IS NOT NULL AND cliente_id = $1) OR
+                 ($2::varchar != '' AND cliente_telefono = $2) OR
+                 ($3::varchar != '' AND cliente_email = $3))
+          ORDER BY fecha_uso DESC LIMIT 1
+        `, [params.clienteId || null, cleanPhone, cleanEmail]);
+        lastGlobalUsage = globalRes.rows[0] ? mapPromotionUsageRow(globalRes.rows[0]) : undefined;
+      } else {
+        lastGlobalUsage = (memoryDb.promotionUsages || []).filter(u =>
+          (params.clienteId && u.clienteId === params.clienteId) ||
+          (cleanPhone && u.clienteTelefono === cleanPhone) ||
+          (cleanEmail && u.clienteEmail === cleanEmail)
+        ).sort((a, b) => b.fechaUso.localeCompare(a.fechaUso))[0];
+      }
+      if (lastGlobalUsage) {
+        const reusableDate = new Date(new Date(lastGlobalUsage.fechaUso).getTime() + globalCooldownDays * 86400000);
+        if (Date.now() < reusableDate.getTime()) {
+          return {
+            valido: false,
+            error: `Usaste un código de descuento dentro de los últimos ${globalCooldownDays} días. Podrás volver a usar códigos a partir del ${formatDateAR(reusableDate)}.`
+          };
+        }
+      }
+    }
+
     // Reuse period in days check
     if (promo.periodoReutilizacionDias != null && promo.periodoReutilizacionDias > 0 && clientUsages.length > 0) {
       const lastUsage = clientUsages[0];
@@ -6682,6 +6758,8 @@ export async function getClientBenefits(params?: {
 
 export async function getAvailableClientBenefits(params: {
   clienteId?: string;
+  nombre?: string;
+  apellido?: string;
   telefono?: string;
   email?: string;
   servicioId?: string;
@@ -6691,30 +6769,44 @@ export async function getAvailableClientBenefits(params: {
   const cleanEmail = normalizeEmail(params.email || '');
   const todayStr = getBusinessDate();
 
+  // Public lookup must never identify a person through an email/phone alone.
+  // Prefer an already resolved canonical client id; otherwise require exact
+  // normalized name + surname plus one normalized contact signal.
+  let resolvedClientId = params.clienteId?.trim() || '';
+  if (!resolvedClientId) {
+    const cleanName = normalizePersonName(params.nombre || '');
+    const cleanSurname = normalizePersonName(params.apellido || '');
+    if (!cleanName || !cleanSurname || (!cleanPhone.nationalDigits && !cleanEmail)) return [];
+
+    const clients = await getClients({ activeOnly: true });
+    const matches = clients.filter(client => {
+      const nameMatches = normalizePersonName(client.nombre) === cleanName &&
+        normalizePersonName(client.apellido) === cleanSurname;
+      const clientPhone = normalizePhone(client.telefono || '');
+      const phoneMatches = Boolean(cleanPhone.nationalDigits && clientPhone.nationalDigits === cleanPhone.nationalDigits);
+      const emailMatches = Boolean(cleanEmail && normalizeEmail(client.email) === cleanEmail);
+      return nameMatches && (phoneMatches || emailMatches);
+    });
+    if (matches.length !== 1) return [];
+    resolvedClientId = matches[0].id;
+  }
+
   let benefits: ClientBenefit[] = [];
 
   if (isPostgresConnected && pgPool) {
     try {
       const res = await pgPool.query(`
         SELECT * FROM client_benefits
-        WHERE estado = 'disponible' AND (
-          ($1::varchar IS NOT NULL AND cliente_id = $1) OR
-          ($2::varchar != '' AND cliente_telefono = $2) OR
-          ($3::varchar != '' AND cliente_email = $3)
-        )
+        WHERE estado = 'disponible' AND cliente_id = $1
         ORDER BY created_at DESC
-      `, [params.clienteId || null, cleanPhone, cleanEmail]);
+      `, [resolvedClientId]);
       benefits = res.rows.map(row => mapClientBenefitRow(row));
     } catch (err) {
       console.error('Error fetching available client benefits from PostgreSQL:', err);
     }
   } else {
     benefits = (memoryDb.clientBenefits || []).filter(b =>
-      b.estado === 'disponible' && (
-        (params.clienteId && b.clienteId === params.clienteId) ||
-        (cleanPhone && b.clienteTelefono && normalizePhone(b.clienteTelefono) === cleanPhone) ||
-        (cleanEmail && b.clienteEmail && normalizeEmail(b.clienteEmail) === cleanEmail)
-      )
+      b.estado === 'disponible' && b.clienteId === resolvedClientId
     );
   }
 
@@ -7107,6 +7199,7 @@ export async function validateClientBenefit(params: {
 
 export async function grantCompensationBenefitForCancelledAppointment(params: {
   appointmentId: string;
+  templateId?: string;
   tipoDescuento: DiscountType;
   valorDescuento: number;
   diasValidez?: number | null;
@@ -7159,6 +7252,7 @@ export async function grantCompensationBenefitForCancelledAppointment(params: {
       clienteNombre: `${apt.nombre} ${apt.apellido}`.trim(),
       clienteTelefono: apt.telefono,
       clienteEmail: apt.email || undefined,
+      templateId: params.templateId,
       titulo,
       descripcion,
       tipoDescuento: params.tipoDescuento,

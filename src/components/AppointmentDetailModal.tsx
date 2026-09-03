@@ -25,7 +25,7 @@ import {
   RotateCcw,
   Trash2
 } from 'lucide-react';
-import { Appointment, AppointmentStatus, ClientWithFullProfile, ClientAlert, ClientPreferences, ClientTipConfigItem } from '../types';
+import { Appointment, AppointmentStatus, ClientWithFullProfile, ClientAlert, ClientPreferences, ClientTipConfigItem, BenefitTemplate } from '../types';
 import { 
   isoDateToAR, 
   formatDateLongAR, 
@@ -37,7 +37,7 @@ interface AppointmentDetailModalProps {
   appointment: Appointment | null;
   allAppointments: Appointment[];
   onClose: () => void;
-  onUpdateStatus: (id: string, newStatus: AppointmentStatus, cancelMeta?: { motivo?: string; origen?: string; canceladoPor?: string }) => Promise<void | any>;
+  onUpdateStatus: (id: string, newStatus: AppointmentStatus, cancelMeta?: { motivo?: string; origen?: string; canceladoPor?: string; benefitTemplateId?: string }) => Promise<void | any>;
   onDelete?: (appointment: Appointment) => Promise<void>;
   onSaveNotes?: (id: string, notes: string) => Promise<void>;
   onOpenClientFicha: (clientLookup: { id?: string; telefono?: string; nombre?: string; apellido?: string }) => void;
@@ -73,6 +73,9 @@ export const AppointmentDetailModal: React.FC<AppointmentDetailModalProps> = ({
 
   // Cancellation reason state
   const [cancelReasonInput, setCancelReasonInput] = useState<string>('Cancelación solicitada por la clienta');
+  const [attachBenefit, setAttachBenefit] = useState(false);
+  const [benefitTemplateId, setBenefitTemplateId] = useState('');
+  const [benefitTemplates, setBenefitTemplates] = useState<BenefitTemplate[]>([]);
 
   // In-modal confirmation dialog state (replaces iframe-blocked window.confirm)
   const [confirmAction, setConfirmAction] = useState<{
@@ -145,6 +148,17 @@ export const AppointmentDetailModal: React.FC<AppointmentDetailModalProps> = ({
 
     loadProfile();
   }, [isOpen, appointment]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    fetch('/api/benefit-templates?activo=true', { credentials: 'include' })
+      .then(async response => response.ok ? response.json() : [])
+      .then((items: BenefitTemplate[]) => {
+        setBenefitTemplates(items);
+        setBenefitTemplateId(items[0]?.id || '');
+      })
+      .catch(() => setBenefitTemplates([]));
+  }, [isOpen]);
 
   // Brand selection for Tips & Softgel
   const [selectedTipBrand, setSelectedTipBrand] = useState<string>('');
@@ -225,7 +239,7 @@ export const AppointmentDetailModal: React.FC<AppointmentDetailModalProps> = ({
   if (!isOpen || !appointment) return null;
 
   // Handle status update
-  const handleStatusChange = async (newStatus: AppointmentStatus, cancelMeta?: { motivo?: string; origen?: string; canceladoPor?: string }) => {
+  const handleStatusChange = async (newStatus: AppointmentStatus, cancelMeta?: { motivo?: string; origen?: string; canceladoPor?: string; benefitTemplateId?: string }) => {
     setActionLoading(true);
     try {
       await onUpdateStatus(appointment.id, newStatus, cancelMeta);
@@ -1140,6 +1154,20 @@ export const AppointmentDetailModal: React.FC<AppointmentDetailModalProps> = ({
                 </div>
               )}
 
+              {confirmAction.status === 'cancelado' && benefitTemplates.length > 0 && (
+                <div className="space-y-2 rounded-xl border border-[#E8DCD5] bg-[#FAF7F2] p-3">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-[#241E1A]">
+                    <input type="checkbox" checked={attachBenefit} onChange={event => setAttachBenefit(event.target.checked)} />
+                    Adjuntar beneficio de compensación
+                  </label>
+                  {attachBenefit && (
+                    <select value={benefitTemplateId} onChange={event => setBenefitTemplateId(event.target.value)} className="w-full rounded-lg border border-[#D9C9BF] bg-white p-2 text-xs">
+                      {benefitTemplates.map(template => <option key={template.id} value={template.id}>{template.nombrePublico} · {template.vigenciaDias} días</option>)}
+                    </select>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#F0E6DE]">
                 <button
                   type="button"
@@ -1172,7 +1200,8 @@ export const AppointmentDetailModal: React.FC<AppointmentDetailModalProps> = ({
                       await handleStatusChange('cancelado', {
                         motivo: reason,
                         origen: 'detalle_turno',
-                        canceladoPor: 'Administración'
+                        canceladoPor: 'Administración',
+                        benefitTemplateId: attachBenefit ? benefitTemplateId : undefined
                       });
                     } else {
                       await handleStatusChange(nextSt);

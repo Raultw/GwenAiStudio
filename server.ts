@@ -25,6 +25,8 @@ import {
   updateService,
   deleteService,
   getAppointments,
+  getAppointmentById,
+  getAppointmentManagementKeyHash,
   createAppointment,
   updateAppointment,
   cancelAppointment,
@@ -110,7 +112,7 @@ import {
 } from "./src/server/db.js";
 import { getBusinessDate, isoDateToAR } from "./src/utils/dateUtils.js";
 import { notificationService } from "./src/server/notifications/notificationService.js";
-import { hashManagementKey, isBookingCodeCollision, randomBookingCode, randomManagementKey } from "./src/server/bookingManagement.js";
+import { hashManagementKey, isBookingCodeCollision, randomBookingCode, randomManagementKey, verifyManagementKey } from "./src/server/bookingManagement.js";
 import {
   calculateAvailability,
   validateBookingSlot,
@@ -190,7 +192,7 @@ app.get("/api/servicios", async (req, res) => {
 });
 
 // 2. POST /api/servicios (Admin)
-app.post("/api/servicios", async (req, res) => {
+app.post("/api/servicios", requireAdmin, async (req, res) => {
   try {
     const { nombre, slug, categoria, descripcion, duracionMinutos, precio, esPopular, icono, detalles, activo } = req.body;
     if (!nombre || !duracionMinutos || !precio) {
@@ -219,7 +221,7 @@ app.post("/api/servicios", async (req, res) => {
 });
 
 // 3. PUT /api/servicios/:id (Admin)
-app.put("/api/servicios/:id", async (req, res) => {
+app.put("/api/servicios/:id", requireAdmin, async (req, res) => {
   try {
     const updated = await updateService(req.params.id, req.body);
     if (!updated) {
@@ -234,7 +236,7 @@ app.put("/api/servicios/:id", async (req, res) => {
 });
 
 // 4. DELETE /api/servicios/:id (Admin)
-app.delete("/api/servicios/:id", async (req, res) => {
+app.delete("/api/servicios/:id", requireAdmin, async (req, res) => {
   try {
     const deleted = await deleteService(req.params.id);
     if (!deleted) {
@@ -368,8 +370,8 @@ app.post(["/api/turnos", "/api/appointments"], async (req, res) => {
     const targetHoraInicio = String(hora_inicio || horaInicio || "");
     const targetProfId = profesional_id || profesionalId ? String(profesional_id || profesionalId) : undefined;
 
-    if (!nombre || !apellido || !telefono || !sId || !targetFecha || !targetHoraInicio) {
-      res.status(400).json({ error: "Todos los campos obligatorios (nombre, apellido, teléfono, servicio, fecha y hora) deben ser completados." });
+    if (!nombre || !apellido || (!telefono && !email) || !sId || !targetFecha || !targetHoraInicio) {
+      res.status(400).json({ error: "Completá nombre, apellido, servicio, fecha, hora y al menos un medio de contacto: teléfono o email." });
       return;
     }
 
@@ -396,7 +398,7 @@ app.post(["/api/turnos", "/api/appointments"], async (req, res) => {
     const client = await findOrCreateClientForBooking({
       nombre: String(nombre).trim(),
       apellido: String(apellido).trim(),
-      telefono: String(telefono).trim(),
+      telefono: telefono ? String(telefono).trim() : '',
       email: email ? String(email).trim() : undefined,
       fecha: targetFecha,
       browserId: browserId ? String(browserId).trim() : undefined
@@ -420,7 +422,7 @@ app.post(["/api/turnos", "/api/appointments"], async (req, res) => {
       codigo: '',
       nombre: String(nombre).trim(),
       apellido: String(apellido).trim(),
-      telefono: String(telefono).trim(),
+      telefono: telefono ? String(telefono).trim() : '',
       email: email ? String(email).trim() : undefined,
       servicioId: service.id,
       servicioNombre: service.nombre,
@@ -475,12 +477,32 @@ app.post(["/api/turnos", "/api/appointments"], async (req, res) => {
     );
     const whatsappUrl = `https://wa.me/${studioWhatsapp}?text=${waMessage}`;
 
+    const configuredPublicUrl = (process.env.PUBLIC_APP_URL || process.env.APP_URL || '').trim().replace(/\/$/, '');
+    const requestBaseUrl = `${req.protocol}://${req.get('host')}`;
+    const managementUrl = `${configuredPublicUrl || requestBaseUrl}/?gestionarTurno=${encodeURIComponent(bookingCode)}`;
+
     res.status(201).json({
       message: "Turno reservado exitosamente.",
       turno: saved,
       managementKey,
       whatsappUrl
     });
+
+    void notificationService.sendAppointmentConfirmation({
+      appointmentId: saved.id,
+      codigo: bookingCode,
+      managementKey,
+      managementUrl,
+      clienteNombre: saved.nombre,
+      clienteApellido: saved.apellido,
+      clienteEmail: saved.email,
+      servicioNombre: saved.servicioNombre,
+      fecha: saved.fecha,
+      horaInicio: saved.horaInicio,
+      horaFin: saved.horaFin,
+      profesionalNombre: saved.profesionalNombre,
+      precioFinal: finalAmount
+    }).catch(error => console.error(`Error sending booking confirmation for ${saved!.id}:`, error?.message || error));
   } catch (error: any) {
     console.error("Error in POST /api/turnos:", error);
     const msg = error?.message || "Error al procesar la reserva";
@@ -517,16 +539,19 @@ app.post(["/api/turnos", "/api/appointments"], async (req, res) => {
 });
 
 // 7. GET /api/turnos (Admin query & list)
-app.get("/api/turnos", async (req, res) => {
+app.get("/api/turnos", requireAdminOrProfessional, async (req, res) => {
   try {
     const { date, status, search, from, to } = req.query;
-    const appointments = await getAppointments({
+    let appointments = await getAppointments({
       date: date ? String(date) : undefined,
       from: from ? String(from) : undefined,
       to: to ? String(to) : undefined,
       status: status ? String(status) : undefined,
       search: search ? String(search) : undefined
     });
+    if (req.authContext && !['admin', 'superadmin'].includes(req.authContext.role)) {
+      appointments = appointments.filter(item => item.profesionalId === req.authContext!.profesionalId);
+    }
     res.json(appointments);
   } catch (error) {
     console.error("Error in GET /api/turnos:", error);
@@ -535,9 +560,78 @@ app.get("/api/turnos", async (req, res) => {
 });
 
 // 8. POST /api/turnos/:id/cancel (Centralized cancellation endpoint)
-app.post("/api/turnos/:id/cancel", async (req, res) => {
+app.post("/api/turnos/gestionar/verificar", bookingRateLimiter, async (req, res) => {
   try {
-    const { motivo, origen, canceladoPor } = req.body || {};
+    const codigo = String(req.body?.codigo || '').trim().toUpperCase();
+    const clave = String(req.body?.clave || '').trim().toUpperCase();
+    const appointment = codigo ? await getAppointmentById(codigo) : null;
+    const storedHash = appointment ? await getAppointmentManagementKeyHash(appointment.id) : null;
+    if (!appointment || !storedHash || !verifyManagementKey(appointment.id, clave, storedHash)) {
+      res.status(400).json({ error: "No pudimos validar los datos de gestión. Revisalos e intentá nuevamente." });
+      return;
+    }
+    res.json({
+      turno: {
+        codigo: appointment.codigo,
+        servicioNombre: appointment.servicioNombre,
+        fecha: appointment.fecha,
+        horaInicio: appointment.horaInicio,
+        horaFin: appointment.horaFin,
+        profesionalNombre: appointment.profesionalNombre,
+        estado: appointment.estado
+      }
+    });
+  } catch {
+    res.status(400).json({ error: "No pudimos validar los datos de gestión. Revisalos e intentá nuevamente." });
+  }
+});
+
+app.post("/api/turnos/gestionar/cancelar", bookingRateLimiter, async (req, res) => {
+  try {
+    const codigo = String(req.body?.codigo || '').trim().toUpperCase();
+    const clave = String(req.body?.clave || '').trim().toUpperCase();
+    const appointment = codigo ? await getAppointmentById(codigo) : null;
+    const storedHash = appointment ? await getAppointmentManagementKeyHash(appointment.id) : null;
+    if (!appointment || !storedHash || !verifyManagementKey(appointment.id, clave, storedHash)) {
+      res.status(400).json({ error: "No pudimos validar los datos de gestión. Revisalos e intentá nuevamente." });
+      return;
+    }
+    if (appointment.estado === 'cancelado') {
+      res.status(409).json({ error: "Este turno ya se encuentra cancelado." });
+      return;
+    }
+    const config = await getStudioConfig();
+    const minimumHours = Math.max(0, Number(config.plazoCancelacionHoras || 0));
+    const appointmentTime = new Date(`${appointment.fecha}T${appointment.horaInicio}:00-03:00`).getTime();
+    if (Number.isFinite(appointmentTime) && appointmentTime - Date.now() < minimumHours * 3600000) {
+      res.status(409).json({ error: `La cancelación online requiere al menos ${minimumHours} horas de anticipación. Contactá al salón para recibir ayuda.` });
+      return;
+    }
+    const cancelled = await cancelAppointment({
+      appointmentId: appointment.id,
+      motivo: 'Cancelación solicitada por la clienta',
+      origen: 'autogestion_cliente',
+      canceladoPor: 'Clienta mediante clave de gestión'
+    });
+    res.json({ message: "Tu turno fue cancelado correctamente.", turno: cancelled });
+  } catch {
+    res.status(400).json({ error: "No pudimos procesar la cancelación. Revisá los datos o contactá al salón." });
+  }
+});
+
+app.post("/api/turnos/:id/cancel", requireAdminOrProfessional, async (req, res) => {
+  try {
+    const targetAppointment = await getAppointmentById(req.params.id);
+    if (!targetAppointment || !enforceProfessionalScope(req, targetAppointment.profesionalId)) {
+      res.status(targetAppointment ? 403 : 404).json({ error: targetAppointment ? "No tenés permiso para modificar este turno." : "Turno no encontrado." });
+      return;
+    }
+    const { motivo, origen, canceladoPor, benefitTemplateId } = req.body || {};
+    const template = benefitTemplateId ? await getBenefitTemplateById(String(benefitTemplateId)) : null;
+    if (benefitTemplateId && (!template || !template.activo)) {
+      res.status(400).json({ error: "La plantilla de beneficio seleccionada no existe o está inactiva." });
+      return;
+    }
     const cancelled = await cancelAppointment({
       appointmentId: req.params.id,
       motivo: motivo || "Cancelado por administración",
@@ -548,7 +642,35 @@ app.post("/api/turnos/:id/cancel", async (req, res) => {
       res.status(404).json({ error: "Turno no encontrado." });
       return;
     }
-    res.json(cancelled);
+    let benefit: ClientBenefit | undefined;
+    if (template) {
+      benefit = await grantCompensationBenefitForCancelledAppointment({
+        appointmentId: cancelled.id,
+        templateId: template.id,
+        tipoDescuento: template.tipoDescuento,
+        valorDescuento: template.valorDescuento,
+        diasValidez: template.vigenciaDias,
+        titulo: template.nombrePublico,
+        descripcion: template.descripcionPublica,
+        serviciosAplicables: template.serviciosAplicables,
+        montoMinimo: template.montoMinimo,
+        otorgadoPor: canceladoPor || "Administración"
+      });
+    }
+    res.json({ ...cancelled, issuedBenefit: benefit });
+    const beneficioSnapshot = benefit ? {
+      id: benefit.id, titulo: benefit.titulo, descripcion: benefit.descripcion,
+      tipoDescuento: benefit.tipoDescuento, valorDescuento: benefit.valorDescuento,
+      fechaVencimiento: benefit.fechaVencimiento, serviciosAplicables: benefit.serviciosAplicables,
+      montoMinimo: benefit.montoMinimo
+    } : undefined;
+    void notificationService.sendAppointmentCancellation(cancelled, {
+      motivo: motivo || "Cancelado por administración",
+      origen: origen || "admin",
+      canceladoPor: canceladoPor || "Administración",
+      idempotencyKey: `admin-cancel-${cancelled.id}-${cancelled.canceladoEn || cancelled.updatedAt}`,
+      beneficio: beneficioSnapshot
+    }).catch(error => console.error(`Error sending cancellation notification for ${cancelled.id}:`, error?.message || error));
   } catch (error) {
     console.error("Error in POST /api/turnos/:id/cancel:", error);
     res.status(500).json({ error: "Error al cancelar turno" });
@@ -556,8 +678,13 @@ app.post("/api/turnos/:id/cancel", async (req, res) => {
 });
 
 // 8b. PATCH /api/turnos/:id (Admin status / notes update)
-app.patch("/api/turnos/:id", async (req, res) => {
+app.patch("/api/turnos/:id", requireAdminOrProfessional, async (req, res) => {
   try {
+    const targetAppointment = await getAppointmentById(req.params.id);
+    if (!targetAppointment || !enforceProfessionalScope(req, targetAppointment.profesionalId)) {
+      res.status(targetAppointment ? 403 : 404).json({ error: targetAppointment ? "No tenés permiso para modificar este turno." : "Turno no encontrado." });
+      return;
+    }
     if (req.body?.estado === 'cancelado') {
       const cancelled = await cancelAppointment({
         appointmentId: req.params.id,
@@ -586,8 +713,13 @@ app.patch("/api/turnos/:id", async (req, res) => {
 });
 
 // 9. DELETE /api/turnos/:id (Admin cancel / archive without physical deletion)
-app.delete("/api/turnos/:id", async (req, res) => {
+app.delete("/api/turnos/:id", requireAdminOrProfessional, async (req, res) => {
   try {
+    const targetAppointment = await getAppointmentById(req.params.id);
+    if (!targetAppointment || !enforceProfessionalScope(req, targetAppointment.profesionalId)) {
+      res.status(targetAppointment ? 403 : 404).json({ error: targetAppointment ? "No tenés permiso para modificar este turno." : "Turno no encontrado." });
+      return;
+    }
     const cancelled = await cancelAppointment({
       appointmentId: req.params.id,
       motivo: req.body?.motivo || "Cancelado y archivado por administración",
@@ -606,12 +738,15 @@ app.delete("/api/turnos/:id", async (req, res) => {
 });
 
 // 10. GET /api/turnos/stats (Analytics dashboard)
-app.get("/api/turnos/stats", async (req, res) => {
+app.get("/api/turnos/stats", requireAdminOrProfessional, async (req, res) => {
   try {
     const today = getTodayIso();
     const currentMonthPrefix = today.slice(0, 7);
 
-    const allAppointments = await getAppointments();
+    let allAppointments = await getAppointments();
+    if (req.authContext && !['admin', 'superadmin'].includes(req.authContext.role)) {
+      allAppointments = allAppointments.filter(item => item.profesionalId === req.authContext!.profesionalId);
+    }
 
     const todayList = allAppointments.filter(a => a.fecha === today && a.estado !== "cancelado");
     const pendingCount = allAppointments.filter(a => a.estado === "pendiente").length;
@@ -670,7 +805,7 @@ app.get("/api/turnos/stats", async (req, res) => {
 // ============================================================================
 
 // A. GET /api/clientes (List with search, category filtering & statistics)
-app.get("/api/clientes", async (req, res) => {
+app.get("/api/clientes", requireAdminOrProfessional, async (req, res) => {
   try {
     const { search, category, activeOnly } = req.query;
     const clients = await getClients({
@@ -686,7 +821,7 @@ app.get("/api/clientes", async (req, res) => {
 });
 
 // B. GET /api/clientes/stats (KPI metrics)
-app.get("/api/clientes/stats", async (req, res) => {
+app.get("/api/clientes/stats", requireAdminOrProfessional, async (req, res) => {
   try {
     const stats = await getClientStats();
     res.json(stats);
@@ -697,7 +832,7 @@ app.get("/api/clientes/stats", async (req, res) => {
 });
 
 // C. GET /api/clientes/duplicados (Potential duplicate pairs list)
-app.get("/api/clientes/duplicados", async (req, res) => {
+app.get("/api/clientes/duplicados", requireAdmin, async (req, res) => {
   try {
     const duplicates = await getPotentialDuplicatePairs();
     res.json(duplicates);
@@ -708,7 +843,7 @@ app.get("/api/clientes/duplicados", async (req, res) => {
 });
 
 // D. POST /api/clientes/fusionar (Merge two client profiles)
-app.post("/api/clientes/fusionar", async (req, res) => {
+app.post("/api/clientes/fusionar", requireAdmin, async (req, res) => {
   try {
     const { primaryId, secondaryId, adminNotes } = req.body;
     if (!primaryId || !secondaryId) {
@@ -727,7 +862,7 @@ app.post("/api/clientes/fusionar", async (req, res) => {
 });
 
 // E. POST /api/clientes/descartar-duplicado (Dismiss duplicate alert)
-app.post("/api/clientes/descartar-duplicado", async (req, res) => {
+app.post("/api/clientes/descartar-duplicado", requireAdmin, async (req, res) => {
   try {
     const { idA, idB } = req.body;
     if (!idA || !idB) {
@@ -743,7 +878,7 @@ app.post("/api/clientes/descartar-duplicado", async (req, res) => {
 });
 
 // F. GET /api/clientes/:id (Single client with full appointment history)
-app.get("/api/clientes/:id", async (req, res) => {
+app.get("/api/clientes/:id", requireAdminOrProfessional, async (req, res) => {
   try {
     const clientData = await getClientById(req.params.id);
     if (!clientData) {
@@ -758,7 +893,7 @@ app.get("/api/clientes/:id", async (req, res) => {
 });
 
 // G. POST /api/clientes (Manual client creation by admin)
-app.post("/api/clientes", async (req, res) => {
+app.post("/api/clientes", requireAdminOrProfessional, async (req, res) => {
   try {
     const { nombre, apellido, telefono, email, notasAdmin } = req.body;
     if (!nombre || !apellido || !telefono) {
@@ -780,7 +915,7 @@ app.post("/api/clientes", async (req, res) => {
 });
 
 // H. PUT /api/clientes/:id (Update client details or notes)
-app.put("/api/clientes/:id", async (req, res) => {
+app.put("/api/clientes/:id", requireAdminOrProfessional, async (req, res) => {
   try {
     const updated = await updateClient(req.params.id, req.body);
     if (!updated) {
@@ -795,7 +930,7 @@ app.put("/api/clientes/:id", async (req, res) => {
 });
 
 // I. DELETE /api/clientes/:id (Soft delete / deactivate)
-app.delete("/api/clientes/:id", async (req, res) => {
+app.delete("/api/clientes/:id", requireAdmin, async (req, res) => {
   try {
     const deleted = await deleteClient(req.params.id);
     if (!deleted) {
@@ -811,7 +946,7 @@ app.delete("/api/clientes/:id", async (req, res) => {
 
 // J. CLIENT ALERTS API ROUTES
 // GET /api/clientes/:id/alertas
-app.get("/api/clientes/:id/alertas", async (req, res) => {
+app.get("/api/clientes/:id/alertas", requireAdminOrProfessional, async (req, res) => {
   try {
     const { activeOnly } = req.query;
     const alerts = await getClientAlerts(req.params.id, activeOnly === "true");
@@ -823,7 +958,7 @@ app.get("/api/clientes/:id/alertas", async (req, res) => {
 });
 
 // POST /api/clientes/:id/alertas
-app.post("/api/clientes/:id/alertas", async (req, res) => {
+app.post("/api/clientes/:id/alertas", requireAdminOrProfessional, async (req, res) => {
   try {
     const { tipo, descripcion, productoServicioRelacionado, fecha, severidad, activa, observaciones } = req.body;
     if (!tipo || !descripcion) {
@@ -848,7 +983,7 @@ app.post("/api/clientes/:id/alertas", async (req, res) => {
 });
 
 // PUT /api/clientes/:id/alertas/:alertId
-app.put("/api/clientes/:id/alertas/:alertId", async (req, res) => {
+app.put("/api/clientes/:id/alertas/:alertId", requireAdminOrProfessional, async (req, res) => {
   try {
     const updated = await updateClientAlert(req.params.alertId, req.body);
     if (!updated) {
@@ -863,7 +998,7 @@ app.put("/api/clientes/:id/alertas/:alertId", async (req, res) => {
 });
 
 // DELETE /api/clientes/:id/alertas/:alertId
-app.delete("/api/clientes/:id/alertas/:alertId", async (req, res) => {
+app.delete("/api/clientes/:id/alertas/:alertId", requireAdminOrProfessional, async (req, res) => {
   try {
     const deleted = await deleteClientAlert(req.params.alertId);
     if (!deleted) {
@@ -879,7 +1014,7 @@ app.delete("/api/clientes/:id/alertas/:alertId", async (req, res) => {
 
 // K. CLIENT PREFERENCES API ROUTES
 // GET /api/clientes/:id/preferencias
-app.get("/api/clientes/:id/preferencias", async (req, res) => {
+app.get("/api/clientes/:id/preferencias", requireAdminOrProfessional, async (req, res) => {
   try {
     const prefs = await getClientPreferences(req.params.id);
     res.json(prefs || {});
@@ -890,7 +1025,7 @@ app.get("/api/clientes/:id/preferencias", async (req, res) => {
 });
 
 // PUT /api/clientes/:id/preferencias
-app.put("/api/clientes/:id/preferencias", async (req, res) => {
+app.put("/api/clientes/:id/preferencias", requireAdminOrProfessional, async (req, res) => {
   try {
     const saved = await saveClientPreferences(req.params.id, req.body);
     res.json(saved);
@@ -902,7 +1037,7 @@ app.put("/api/clientes/:id/preferencias", async (req, res) => {
 
 // L. CLIENT TIPS CONFIG API ROUTES
 // GET /api/clientes/:id/tips
-app.get("/api/clientes/:id/tips", async (req, res) => {
+app.get("/api/clientes/:id/tips", requireAdminOrProfessional, async (req, res) => {
   try {
     const tips = await getClientTipsConfig(req.params.id);
     res.json(tips);
@@ -913,7 +1048,7 @@ app.get("/api/clientes/:id/tips", async (req, res) => {
 });
 
 // PUT /api/clientes/:id/tips
-app.put("/api/clientes/:id/tips", async (req, res) => {
+app.put("/api/clientes/:id/tips", requireAdminOrProfessional, async (req, res) => {
   try {
     const tipsList = Array.isArray(req.body) ? req.body : (req.body.tips || []);
     const saved = await saveClientTipsConfig(req.params.id, tipsList);
@@ -928,8 +1063,7 @@ app.put("/api/clientes/:id/tips", async (req, res) => {
 app.get("/api/config", async (req, res) => {
   try {
     const config = await getStudioConfig();
-    const { pinAdmin: _, ...safeConfig } = config as any;
-    res.json(safeConfig);
+    res.json(config);
   } catch (error) {
     console.error("Error in GET /api/config:", error);
     res.status(500).json({ error: "Error al obtener configuración" });
@@ -939,8 +1073,7 @@ app.get("/api/config", async (req, res) => {
 app.put("/api/config", requireAdmin, async (req, res) => {
   try {
     const updated = await updateStudioConfig(req.body);
-    const { pinAdmin: _, ...safeConfig } = updated as any;
-    res.json(safeConfig);
+    res.json(updated);
   } catch (error) {
     console.error("Error in PUT /api/config:", error);
     res.status(500).json({ error: "Error al actualizar configuración" });
@@ -949,7 +1082,7 @@ app.put("/api/config", requireAdmin, async (req, res) => {
 
 
 // 13. POST /api/admin/bloquear-horario (Blocks a time range or whole day with collision detection -> unified as AvailabilityException)
-app.post("/api/admin/bloquear-horario", async (req, res) => {
+app.post("/api/admin/bloquear-horario", requireAdmin, async (req, res) => {
   try {
     const { 
       fecha, 
@@ -1038,7 +1171,7 @@ app.post("/api/admin/bloquear-horario", async (req, res) => {
 });
 
 // 14. DELETE /api/admin/bloquear-horario/:id (Removes a specific block/exception)
-app.delete("/api/admin/bloquear-horario/:id", async (req, res) => {
+app.delete("/api/admin/bloquear-horario/:id", requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const success = await deleteAvailabilityException(id);
@@ -1085,7 +1218,7 @@ app.get("/api/profesionales/:id", async (req, res) => {
 });
 
 // 17. POST /api/profesionales
-app.post("/api/profesionales", async (req, res) => {
+app.post("/api/profesionales", requireAdmin, async (req, res) => {
   try {
     const { nombre, apellido, email, telefono, fotoUrl, colorAgenda, titulo, activo, serviciosIds } = req.body;
     if (!nombre || !apellido) {
@@ -1111,7 +1244,7 @@ app.post("/api/profesionales", async (req, res) => {
 });
 
 // 18. PUT /api/profesionales/:id
-app.put("/api/profesionales/:id", async (req, res) => {
+app.put("/api/profesionales/:id", requireAdmin, async (req, res) => {
   try {
     const updated = await updateProfessional(req.params.id, req.body);
     if (!updated) {
@@ -1126,7 +1259,7 @@ app.put("/api/profesionales/:id", async (req, res) => {
 });
 
 // 19. DELETE /api/profesionales/:id
-app.delete("/api/profesionales/:id", async (req, res) => {
+app.delete("/api/profesionales/:id", requireAdmin, async (req, res) => {
   try {
     const allAppointments = await getAppointments();
     const hasHistoricalAppointments = allAppointments.some(
@@ -1164,7 +1297,7 @@ app.get("/api/profesionales/:id/servicios", async (req, res) => {
 });
 
 // 21. PUT /api/profesionales/:id/servicios
-app.put("/api/profesionales/:id/servicios", async (req, res) => {
+app.put("/api/profesionales/:id/servicios", requireAdmin, async (req, res) => {
   try {
     const { serviciosIds } = req.body;
     if (!Array.isArray(serviciosIds)) {
@@ -1191,7 +1324,7 @@ app.get("/api/servicios/:id/profesionales", async (req, res) => {
 });
 
 // 21c. PUT /api/servicios/:id/profesionales
-app.put("/api/servicios/:id/profesionales", async (req, res) => {
+app.put("/api/servicios/:id/profesionales", requireAdmin, async (req, res) => {
   try {
     const { profesionalIds } = req.body;
     if (!Array.isArray(profesionalIds)) {
@@ -1467,7 +1600,7 @@ app.get("/api/horarios/vigente", async (req, res) => {
 });
 
 // 29. POST /api/horarios
-app.post("/api/horarios", async (req, res) => {
+app.post("/api/horarios", requireAdmin, async (req, res) => {
   try {
     const { alcance, profesionalId, fechaVigencia, dias } = req.body;
     if (!alcance || !fechaVigencia || !dias) {
@@ -1488,7 +1621,7 @@ app.post("/api/horarios", async (req, res) => {
 });
 
 // 29.1 POST /api/horarios/check-cobertura (Verifies studio coverage for professional weekly schedule)
-app.post("/api/horarios/check-cobertura", async (req, res) => {
+app.post("/api/horarios/check-cobertura", requireAdmin, async (req, res) => {
   try {
     const { fechaVigencia, dias, profesionalId } = req.body;
     if (!fechaVigencia || !dias) {
@@ -1508,7 +1641,7 @@ app.post("/api/horarios/check-cobertura", async (req, res) => {
 });
 
 // 30. DELETE /api/horarios/:id
-app.delete("/api/horarios/:id", async (req, res) => {
+app.delete("/api/horarios/:id", requireAdmin, async (req, res) => {
   try {
     const deleted = await deleteSchedule(req.params.id);
     if (!deleted) {
@@ -1541,7 +1674,7 @@ app.get("/api/excepciones-disponibilidad", async (req, res) => {
 });
 
 // 32. POST /api/excepciones-disponibilidad
-app.post("/api/excepciones-disponibilidad", async (req, res) => {
+app.post("/api/excepciones-disponibilidad", requireAdmin, async (req, res) => {
   try {
     const {
       alcance,
@@ -1607,6 +1740,15 @@ app.post("/api/excepciones-disponibilidad", async (req, res) => {
 
     const { exceptions, cancelledAppointments, issuedBenefits, appointmentResults } = result;
 
+    // The business transaction is already committed. Return immediately so a slow
+    // email transport cannot leave the administrative confirmation modal hanging.
+    res.status(201).json({
+      exceptions,
+      cancelledCount: cancelledAppointments.length,
+      issuedBenefitsCount: (issuedBenefits || []).length,
+      issuedBenefits: issuedBenefits || []
+    });
+
     // 2. AFTER transaction is confirmed in DB, send notifications based on transactional analysis
     if (appointmentResults && appointmentResults.length > 0) {
       for (const resItem of appointmentResults) {
@@ -1669,12 +1811,6 @@ app.post("/api/excepciones-disponibilidad", async (req, res) => {
       }
     }
 
-    res.status(201).json({
-      exceptions,
-      cancelledCount: cancelledAppointments.length,
-      issuedBenefitsCount: (issuedBenefits || []).length,
-      issuedBenefits: issuedBenefits || []
-    });
   } catch (error: any) {
     console.error("Error in POST /api/excepciones-disponibilidad:", error);
     const msg = error?.message || "Error al crear excepción de disponibilidad";
@@ -1684,12 +1820,12 @@ app.post("/api/excepciones-disponibilidad", async (req, res) => {
     } else if (msg.includes('Existen turnos afectados')) {
       statusCode = 409;
     }
-    res.status(statusCode).json({ error: msg });
+    if (!res.headersSent) res.status(statusCode).json({ error: msg });
   }
 });
 
 // 32b. GET /api/notifications/logs
-app.get("/api/notifications/logs", async (req, res) => {
+app.get("/api/notifications/logs", requireAdmin, async (req, res) => {
   try {
     const { appointmentId, channel, limit } = req.query;
     const logs = await getNotificationLogs({
@@ -1705,7 +1841,7 @@ app.get("/api/notifications/logs", async (req, res) => {
 });
 
 // 33. DELETE /api/excepciones-disponibilidad/:id
-app.delete("/api/excepciones-disponibilidad/:id", async (req, res) => {
+app.delete("/api/excepciones-disponibilidad/:id", requireAdmin, async (req, res) => {
   try {
     const deleted = await deleteAvailabilityException(req.params.id);
     if (!deleted) {
@@ -1720,7 +1856,7 @@ app.delete("/api/excepciones-disponibilidad/:id", async (req, res) => {
 });
 
 // 34. POST /api/excepciones-disponibilidad/check-conflictos
-app.post("/api/excepciones-disponibilidad/check-conflictos", async (req, res) => {
+app.post("/api/excepciones-disponibilidad/check-conflictos", requireAdmin, async (req, res) => {
   try {
     const { alcance, profesionalId, profesionalIds, fecha, tipo, intervalos } = req.body;
     if (!alcance || !fecha || !tipo) {
@@ -1743,7 +1879,7 @@ app.post("/api/excepciones-disponibilidad/check-conflictos", async (req, res) =>
 });
 
 // 34b. POST /api/excepciones-disponibilidad/check-cobertura
-app.post("/api/excepciones-disponibilidad/check-cobertura", async (req, res) => {
+app.post("/api/excepciones-disponibilidad/check-cobertura", requireAdmin, async (req, res) => {
   try {
     const { fecha, profesionalIntervalos } = req.body;
     if (!fecha || typeof fecha !== "string" || !Array.isArray(profesionalIntervalos)) {
@@ -1759,7 +1895,7 @@ app.post("/api/excepciones-disponibilidad/check-cobertura", async (req, res) => 
 });
 
 // 35. POST /api/excepciones-disponibilidad/auto-extender-local
-app.post("/api/excepciones-disponibilidad/auto-extender-local", async (req, res) => {
+app.post("/api/excepciones-disponibilidad/auto-extender-local", requireAdmin, async (req, res) => {
   try {
     const { fecha, requiredIntervals, motivo } = req.body;
     if (!fecha || !Array.isArray(requiredIntervals)) {
@@ -1779,7 +1915,7 @@ app.post("/api/excepciones-disponibilidad/auto-extender-local", async (req, res)
 // ============================================================================
 
 // 36. GET /api/promociones
-app.get("/api/promociones", async (req, res) => {
+app.get("/api/promociones", requireAdmin, async (req, res) => {
   try {
     const includeInactive = req.query.all === "true";
     const promotions = await getPromotions(includeInactive);
@@ -1791,7 +1927,7 @@ app.get("/api/promociones", async (req, res) => {
 });
 
 // 37. GET /api/promociones/:id
-app.get("/api/promociones/:id", async (req, res) => {
+app.get("/api/promociones/:id", requireAdmin, async (req, res) => {
   try {
     const promo = await getPromotionById(req.params.id);
     if (!promo) {
@@ -1806,7 +1942,7 @@ app.get("/api/promociones/:id", async (req, res) => {
 });
 
 // 38. POST /api/promociones
-app.post("/api/promociones", async (req, res) => {
+app.post("/api/promociones", requireAdmin, async (req, res) => {
   try {
     const {
       codigo,
@@ -1860,7 +1996,7 @@ app.post("/api/promociones", async (req, res) => {
 });
 
 // 39. PUT /api/promociones/:id
-app.put("/api/promociones/:id", async (req, res) => {
+app.put("/api/promociones/:id", requireAdmin, async (req, res) => {
   try {
     const updated = await updatePromotion(req.params.id, req.body);
     if (!updated) {
@@ -1875,7 +2011,7 @@ app.put("/api/promociones/:id", async (req, res) => {
 });
 
 // 40. DELETE /api/promociones/:id (Soft-delete / deactivate)
-app.delete("/api/promociones/:id", async (req, res) => {
+app.delete("/api/promociones/:id", requireAdmin, async (req, res) => {
   try {
     const success = await deletePromotion(req.params.id);
     if (!success) {
@@ -1915,7 +2051,7 @@ app.post("/api/promociones/validar", async (req, res) => {
 });
 
 // 42. GET /api/promociones-usos
-app.get("/api/promociones-usos", async (req, res) => {
+app.get("/api/promociones-usos", requireAdmin, async (req, res) => {
   try {
     const { promocionId, clienteId } = req.query;
     const usages = await getPromotionUsages(
@@ -1930,7 +2066,7 @@ app.get("/api/promociones-usos", async (req, res) => {
 });
 
 // 43. GET /api/beneficios-cliente
-app.get("/api/beneficios-cliente", async (req, res) => {
+app.get("/api/beneficios-cliente", requireAdmin, async (req, res) => {
   try {
     const { clienteId, estado, search } = req.query;
     const benefits = await getClientBenefits({
@@ -1948,9 +2084,11 @@ app.get("/api/beneficios-cliente", async (req, res) => {
 // 44. GET /api/beneficios-cliente/disponibles (For identified client in booking flow)
 app.get("/api/beneficios-cliente/disponibles", async (req, res) => {
   try {
-    const { clienteId, telefono, email, servicioId, precio } = req.query;
+    const { clienteId, nombre, apellido, telefono, email, servicioId, precio } = req.query;
     const available = await getAvailableClientBenefits({
       clienteId: clienteId ? String(clienteId) : undefined,
+      nombre: nombre ? String(nombre) : undefined,
+      apellido: apellido ? String(apellido) : undefined,
       telefono: telefono ? String(telefono) : undefined,
       email: email ? String(email) : undefined,
       servicioId: servicioId ? String(servicioId) : undefined,
@@ -1964,7 +2102,7 @@ app.get("/api/beneficios-cliente/disponibles", async (req, res) => {
 });
 
 // 44b. GET /api/beneficios-cliente/:id
-app.get("/api/beneficios-cliente/:id", async (req, res) => {
+app.get("/api/beneficios-cliente/:id", requireAdmin, async (req, res) => {
   try {
     const benefit = await getClientBenefitById(req.params.id);
     if (!benefit) {
@@ -1979,7 +2117,7 @@ app.get("/api/beneficios-cliente/:id", async (req, res) => {
 });
 
 // 45. POST /api/beneficios-cliente (Admin creates a benefit for client)
-app.post("/api/beneficios-cliente", async (req, res) => {
+app.post("/api/beneficios-cliente", requireAdmin, async (req, res) => {
   try {
     const {
       clienteId,
@@ -2034,7 +2172,7 @@ app.post("/api/beneficios-cliente", async (req, res) => {
 });
 
 // 46. PUT /api/beneficios-cliente/:id
-app.put("/api/beneficios-cliente/:id", async (req, res) => {
+app.put("/api/beneficios-cliente/:id", requireAdmin, async (req, res) => {
   try {
     const benefitId = String(req.params.id || '').trim();
     if (!benefitId) {
@@ -2179,7 +2317,7 @@ app.post("/api/beneficios-cliente/validar", async (req, res) => {
 });
 
 // 48. POST /api/beneficios-cliente/otorgar-compensacion
-app.post("/api/beneficios-cliente/otorgar-compensacion", async (req, res) => {
+app.post("/api/beneficios-cliente/otorgar-compensacion", requireAdmin, async (req, res) => {
   try {
     const {
       appointmentId,

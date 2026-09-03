@@ -1,11 +1,12 @@
 import { NotificationProvider } from './provider.interface.js';
 import { 
   CancellationNotificationData, 
+  ConfirmationNotificationData,
   NotificationChannel, 
   NotificationResult, 
   NotificationSendOptions 
 } from './types.js';
-import { generateCancellationHtml, generateCancellationPlainText } from './emailTemplate.js';
+import { generateCancellationHtml, generateCancellationPlainText, generateConfirmationHtml, generateConfirmationPlainText } from './emailTemplate.js';
 
 export interface SentEmailRecord {
   id: string;
@@ -13,7 +14,7 @@ export interface SentEmailRecord {
   subject: string;
   text: string;
   html: string;
-  data: CancellationNotificationData;
+  data: CancellationNotificationData | ConfirmationNotificationData;
   options?: NotificationSendOptions;
   sentAt: string;
 }
@@ -103,6 +104,25 @@ export class MockEmailNotificationProvider implements NotificationProvider {
       providerMessageId: messageId,
       sentAt
     };
+  }
+
+  async sendConfirmation(
+    data: ConfirmationNotificationData,
+    options?: NotificationSendOptions
+  ): Promise<NotificationResult> {
+    const recipient = (data.clienteEmail || '').trim();
+    const subject = `Confirmación de Turno - Gwen Nails (Reserva #${data.codigo})`;
+    if (!recipient) return { channel: this.channel, recipient: 'sin_email', status: 'omitido_sin_email', success: true, idempotencyKey: options?.idempotencyKey };
+    if (this.shouldFailNext) {
+      this.shouldFailNext = false;
+      return { channel: this.channel, recipient, status: 'failed', success: false, subject, error: this.failureError, idempotencyKey: options?.idempotencyKey };
+    }
+    const text = generateConfirmationPlainText(data);
+    const html = generateConfirmationHtml(data);
+    const messageId = `mock-confirmation-${Date.now()}`;
+    const sentAt = new Date().toISOString();
+    this.sentEmails.push({ id: messageId, recipient, subject, text, html, data, options, sentAt });
+    return { channel: this.channel, recipient, status: 'sent', success: true, subject, idempotencyKey: options?.idempotencyKey, providerMessageId: messageId, sentAt };
   }
 }
 

@@ -1,9 +1,50 @@
-import { CancellationNotificationData } from './types';
+import { CancellationNotificationData, ConfirmationNotificationData } from './types';
 import { isoDateToAR } from '../../utils/dateUtils.js';
 
 export interface EmailTemplateOptions {
   isTestEnv?: boolean;
   testDisclaimer?: string;
+}
+
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+export function generateConfirmationHtml(data: ConfirmationNotificationData): string {
+  const fullName = escapeHtml(`${data.clienteNombre} ${data.clienteApellido || ''}`.trim());
+  const professional = data.profesionalNombre
+    ? `<p style="margin:4px 0"><strong>Profesional:</strong> ${escapeHtml(data.profesionalNombre)}</p>`
+    : '';
+  const price = data.precioFinal != null
+    ? `<p style="margin:4px 0"><strong>Total:</strong> $${escapeHtml(data.precioFinal.toLocaleString('es-AR'))} ARS</p>`
+    : '';
+  return `<!doctype html><html lang="es"><body style="margin:0;padding:24px;background:#FAF7F2;color:#241E1A;font-family:Arial,sans-serif">
+  <table role="presentation" width="100%" style="max-width:580px;margin:auto;background:#fff;border:1px solid #E8DCD5;border-radius:16px;overflow:hidden">
+    <tr><td style="padding:28px;background:#8E4455;color:#fff;text-align:center"><h1 style="margin:0;font-size:23px">Gwen Nails</h1><p style="margin:6px 0 0">Tu turno está confirmado</p></td></tr>
+    <tr><td style="padding:30px"><p>Hola <strong>${fullName}</strong> 💅</p><p>Registramos correctamente tu reserva.</p>
+      <div style="padding:18px;background:#FDFBFA;border:1px solid #E8DCD5;border-radius:12px">
+        <p style="margin:4px 0"><strong>Servicio:</strong> ${escapeHtml(data.servicioNombre)}</p>
+        <p style="margin:4px 0"><strong>Fecha:</strong> ${escapeHtml(isoDateToAR(data.fecha))}</p>
+        <p style="margin:4px 0"><strong>Horario:</strong> ${escapeHtml(data.horaInicio)} a ${escapeHtml(data.horaFin)} hs</p>${professional}${price}
+      </div>
+      <div style="margin-top:18px;padding:18px;background:#FFF9F6;border:2px dashed #E8B4B8;border-radius:12px">
+        <p style="margin:4px 0"><strong>Código de reserva:</strong> <span style="font-family:monospace">${escapeHtml(data.codigo)}</span></p>
+        <p style="margin:8px 0 4px"><strong>Clave de gestión:</strong> <span style="font-family:monospace;font-size:17px">${escapeHtml(data.managementKey)}</span></p>
+        <p style="font-size:13px">Guardá estos datos o tomá una captura. Los necesitarás para gestionar o cancelar el turno.</p>
+      </div>
+      <p style="text-align:center;margin:24px 0 8px"><a href="${escapeHtml(data.managementUrl)}" style="display:inline-block;padding:12px 20px;border-radius:24px;background:#8E4455;color:#fff;text-decoration:none">Gestionar mi turno</a></p>
+      <p style="font-size:12px;color:#7A6B62;text-align:center">El enlace abre una pantalla de gestión y nunca cancela el turno automáticamente.</p>
+    </td></tr>
+  </table></body></html>`;
+}
+
+export function generateConfirmationPlainText(data: ConfirmationNotificationData): string {
+  return `Hola ${data.clienteNombre} ${data.clienteApellido || ''}\n\nTu turno en Gwen Nails está confirmado.\n\nServicio: ${data.servicioNombre}\nFecha: ${isoDateToAR(data.fecha)}\nHorario: ${data.horaInicio} a ${data.horaFin} hs${data.profesionalNombre ? `\nProfesional: ${data.profesionalNombre}` : ''}${data.precioFinal != null ? `\nTotal: $${data.precioFinal.toLocaleString('es-AR')} ARS` : ''}\n\nCódigo de reserva: ${data.codigo}\nClave de gestión: ${data.managementKey}\n\nGuardá estos datos o tomá una captura. Los necesitarás para gestionar o cancelar el turno.\n\nGestionar mi turno: ${data.managementUrl}\nEl enlace no cancela el turno automáticamente.\n\nGwen Nails`;
 }
 
 /**

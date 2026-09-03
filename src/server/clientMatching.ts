@@ -274,9 +274,6 @@ export function evaluateClientMatch(
       score = 95; // Strong match: 95%
     } else if (phoneMatches && emailMatches) {
       score = 92; // Strong match: 92%
-    } else if (phoneMatches && !exactNameMatches && !normEmail) {
-      // Same phone, no email provided, maybe slight nickname variation
-      score = 90;
     } else if (emailMatches && exactNameMatches) {
       score = 90;
     } else if (emailMatches && similarNameMatches) {

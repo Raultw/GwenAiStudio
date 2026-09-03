@@ -1,5 +1,6 @@
 import { 
   CancellationNotificationData, 
+  ConfirmationNotificationData,
   NotificationChannel, 
   NotificationResult, 
   NotificationSendOptions 
@@ -18,6 +19,11 @@ export interface NotificationProvider {
    */
   sendCancellation(
     data: CancellationNotificationData,
+    options?: NotificationSendOptions
+  ): Promise<NotificationResult>;
+
+  sendConfirmation?(
+    data: ConfirmationNotificationData,
     options?: NotificationSendOptions
   ): Promise<NotificationResult>;
 }

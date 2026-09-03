@@ -235,7 +235,7 @@ export const AvailabilityExceptionsAdmin: React.FC<AvailabilityExceptionsAdminPr
 
     if (res.status === 401) {
       onAuthError?.();
-      return;
+      throw new Error('La sesión venció. Volvé a iniciar sesión para continuar.');
     }
 
     if (!res.ok) {
@@ -1242,6 +1242,12 @@ export const AvailabilityExceptionsAdmin: React.FC<AvailabilityExceptionsAdminPr
                   <li>Se enviará una notificación por email con el detalle de la cancelación{attachBenefit ? ' y el beneficio adjunto' : ''} a las clientas con correo registrado.</li>
                 </ul>
               </div>
+
+              {errorMsg && (
+                <div role="alert" className="p-3 rounded-xl border border-rose-300 bg-rose-50 text-xs font-medium text-rose-800">
+                  {errorMsg}
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex flex-col sm:flex-row items-center justify-end gap-3 pt-2">

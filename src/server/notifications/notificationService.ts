@@ -4,6 +4,7 @@ import { WhatsAppNotificationProvider } from './whatsAppProvider.js';
 import {
   CancellationBenefitSnapshot,
   CancellationNotificationData,
+  ConfirmationNotificationData,
   NotificationChannel,
   NotificationLog,
   NotificationResult,
@@ -58,6 +59,68 @@ export class NotificationService {
    */
   public getProvider(channel: NotificationChannel): NotificationProvider | undefined {
     return this.providers.get(channel);
+  }
+
+  public async sendAppointmentConfirmation(
+    data: ConfirmationNotificationData,
+    options?: { idempotencyKey?: string; metadata?: Record<string, any> }
+  ): Promise<NotificationResult> {
+    const provider = this.providers.get('email');
+    const recipient = (data.clienteEmail || '').trim().toLowerCase();
+    const idempotencyKey = (options?.idempotencyKey || `booking-confirmation-${data.appointmentId}`).substring(0, 120);
+    const logId = `notif-confirmation-${data.appointmentId}`;
+
+    if (!recipient) {
+      const result: NotificationResult = {
+        channel: 'email', recipient: 'sin_recipiente', status: 'omitido_sin_email', success: true,
+        message: 'Confirmación omitida por falta de email', idempotencyKey
+      };
+      await createNotificationLog({
+        id: logId, appointmentId: data.appointmentId, channel: 'email', recipient: 'sin_recipiente',
+        notificationType: 'appointment_confirmation', status: 'omitido_sin_email', idempotencyKey,
+        error: 'no enviado por falta de destinatario', metadata: { codigo: data.codigo, ...options?.metadata }
+      }).catch(() => {});
+      return result;
+    }
+
+    if (!provider?.sendConfirmation) {
+      return { channel: 'email', recipient, status: 'failed', success: false, error: 'confirmation_not_supported', idempotencyKey };
+    }
+
+    await createNotificationLog({
+      id: logId, appointmentId: data.appointmentId, channel: 'email', recipient,
+      notificationType: 'appointment_confirmation', status: 'pending', idempotencyKey,
+      metadata: { codigo: data.codigo, ...options?.metadata }
+    }).catch(() => {});
+
+    const acquired = await acquireNotificationLock(idempotencyKey, 'email').catch(() => null);
+    if (!acquired) {
+      const sent = await isNotificationAlreadySent(idempotencyKey, 'email');
+      return {
+        channel: 'email', recipient, status: 'skipped', success: true, idempotencyKey,
+        message: sent ? 'Confirmación ya enviada' : 'Confirmación en proceso'
+      };
+    }
+
+    const result = await provider.sendConfirmation(data, { idempotencyKey, metadata: options?.metadata });
+    await createNotificationLog({
+      id: acquired.id || logId,
+      appointmentId: data.appointmentId,
+      channel: 'email',
+      recipient: result.recipient || recipient,
+      notificationType: 'appointment_confirmation',
+      status: result.status,
+      subject: result.subject,
+      message: result.message,
+      idempotencyKey,
+      error: result.error,
+      sentAt: result.status === 'sent' ? (result.sentAt || new Date().toISOString()) : undefined,
+      attemptCount: acquired.attemptCount || 1,
+      maxAttempts: acquired.maxAttempts || 3,
+      providerMessageId: result.providerMessageId,
+      metadata: { codigo: data.codigo, ...options?.metadata }
+    });
+    return result;
   }
 
   /**

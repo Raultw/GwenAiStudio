@@ -304,6 +304,8 @@ Cada etapa requiere evidencia reproducible y revisión; actualizar este document
 
 ### Acceso para QA
 
+Bootstrap AUTH-002 2026-09-03, commit 18fac8d: conexión/transacción única PostgreSQL para bloqueo, verificación, alta y auditoría. 72 casos aislados y tsc aprobados. Sin PostgreSQL real ni despliegue. Para coordinación estable, Antigravity queda limitado a propuestas acotadas sin edición/terminal; Codex aplica y verifica, evitando truncados por timeout.
+
 Avance 2026-09-03 commit 1def4ab: desactivación/degradación del último superadmin serializada en updateUser mediante una transacción PostgreSQL con conexión única/advisory lock/FOR UPDATE; mutex equivalente en memoria. 66 pruebas AUTH-002 aisladas y tsc pasan. Falta bootstrap de conexión única y QA real; no integrado.
 
 Corrección AUTH-002 2026-09-03: 093a9d5/3026891 fuerza cambio inicial en altas administrativas, excluye credenciales de updateUser, valida respuestas de cuenta y evita duplicar profesional tras fallo parcial. Pruebas aisladas/typecheck/build aprobados. Aún no integrado ni desplegado; faltan superadmin concurrente y QA PostgreSQL/navegador/Render. Automatización permanece pausada.

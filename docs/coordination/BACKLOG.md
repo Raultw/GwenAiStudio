@@ -18,6 +18,8 @@ Actualización posterior: propietario autorizó continuidad autónoma del plan y
 
 ## Evidencia y límites
 
+Actualización 2026-09-03: 18fac8d corrige bootstrap con conexión única; 72 casos AUTH-002 aislados y tsc pasan. AUTH-002 sigue REVIEW hasta integración y QA. Ver reviews/AUTH-002-bootstrap-20260903.md. Para evitar permisos repetidos/truncados, Antigravity queda en propuesta sin escritura/terminal y Codex aplica/prueba/publica.
+
 ### Revisión manual 2026-09-03 (prevalece sobre estados anteriores)
 
 BOOK-003 ampliado explícitamente por el propietario: código + clave de gestión en confirmación, aviso guardar/captura y email con datos del turno y enlace directo seguro de cancelación. Ver tasks/BOOK-003.md y roadmap 7/12. No basta con incluir un enlace si su pantalla de confirmación aún no existe. Continúa después de AUTH-002.

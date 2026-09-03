@@ -417,6 +417,7 @@ const DATA_FILE = path.join(DATA_DIR, "gwen_db.json");
 interface FallbackDb {
   services: Service[];
   appointments: Appointment[];
+  appointmentManagementKeyHashes: Record<string, string>;
   clients: Client[];
   clientAlerts: ClientAlert[];
   clientPreferences: ClientPreferences[];
@@ -439,6 +440,7 @@ interface FallbackDb {
 export const memoryDb: FallbackDb = {
   services: defaultServices,
   appointments: [],
+  appointmentManagementKeyHashes: {},
   clients: [],
   clientAlerts: [],
   clientPreferences: [],
@@ -485,6 +487,9 @@ function loadLocalFileDb() {
       }
       if (parsed.appointments && Array.isArray(parsed.appointments)) {
         memoryDb.appointments = parsed.appointments;
+      }
+      if (parsed.appointmentManagementKeyHashes && typeof parsed.appointmentManagementKeyHashes === 'object') {
+        memoryDb.appointmentManagementKeyHashes = parsed.appointmentManagementKeyHashes;
       }
       if (parsed.clients && Array.isArray(parsed.clients)) {
         memoryDb.clients = parsed.clients;
@@ -695,6 +700,7 @@ export async function initDatabase() {
           ALTER TABLE appointments ADD COLUMN IF NOT EXISTS descuento_monto NUMERIC;
           ALTER TABLE appointments ADD COLUMN IF NOT EXISTS precio_original NUMERIC;
           ALTER TABLE appointments ADD COLUMN IF NOT EXISTS precio_final NUMERIC;
+          ALTER TABLE appointments ADD COLUMN IF NOT EXISTS management_key_hash VARCHAR(160);
 
           CREATE INDEX IF NOT EXISTS idx_appointments_fecha ON appointments(fecha);
           CREATE INDEX IF NOT EXISTS idx_appointments_estado ON appointments(estado);
@@ -2561,7 +2567,10 @@ function mapAppointmentRow(row: any): Appointment {
   };
 }
 
-export async function createAppointment(apt: Appointment): Promise<Appointment> {
+export async function createAppointment(
+  apt: Appointment,
+  options?: { managementKeyHash?: string }
+): Promise<Appointment> {
   // Defensive No-Stacking rule: strictly reject if both a promotion and client benefit are present
   const promoCodeClean = typeof apt.descuentoCodigo === 'string' ? apt.descuentoCodigo.trim() : '';
   const discountIdClean = typeof apt.descuentoId === 'string' ? apt.descuentoId.trim() : '';
@@ -2874,6 +2883,7 @@ export async function createAppointment(apt: Appointment): Promise<Appointment> 
           notas_admin, browser_id,
           descuento_tipo, descuento_id, descuento_codigo, descuento_nombre,
           descuento_porcentaje, descuento_monto, precio_original, precio_final,
+          management_key_hash,
           created_at, updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9,
@@ -2882,6 +2892,7 @@ export async function createAppointment(apt: Appointment): Promise<Appointment> 
           $19, $20,
           $21, $22, $23, $24,
           $25, $26, $27, $28,
+          $29,
           NOW(), NOW()
         )
       `, [
@@ -2912,7 +2923,8 @@ export async function createAppointment(apt: Appointment): Promise<Appointment> 
         apt.descuentoPorcentaje || null,
         apt.descuentoMonto || null,
         apt.precioOriginal || originalPrice,
-        apt.precioFinal || originalPrice
+        apt.precioFinal || originalPrice,
+        options?.managementKeyHash || null
       ]);
 
       await client.query('COMMIT');
@@ -2924,6 +2936,12 @@ export async function createAppointment(apt: Appointment): Promise<Appointment> 
     } finally {
       client.release();
     }
+  }
+
+  if (memoryDb.appointments.some(existing => existing.codigo === apt.codigo)) {
+    const duplicateCodeError: any = new Error('El código de reserva generado ya existe.');
+    duplicateCodeError.code = 'BOOKING_CODE_COLLISION';
+    throw duplicateCodeError;
   }
 
   // Fallback in-memory check for double booking in development
@@ -3102,6 +3120,9 @@ export async function createAppointment(apt: Appointment): Promise<Appointment> 
   }
 
   memoryDb.appointments.unshift(apt);
+  if (options?.managementKeyHash) {
+    memoryDb.appointmentManagementKeyHashes[apt.id] = options.managementKeyHash;
+  }
   saveLocalFileDb();
   return apt;
 }

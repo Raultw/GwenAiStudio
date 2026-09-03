@@ -2,6 +2,7 @@ import { generateProposedUsername } from "./src/server/clientMatching.js";
 import express from "express";
 import cors from "cors";
 import path from "path";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import type { 
   Service, 
@@ -109,6 +110,7 @@ import {
 } from "./src/server/db.js";
 import { getBusinessDate, isoDateToAR } from "./src/utils/dateUtils.js";
 import { notificationService } from "./src/server/notifications/notificationService.js";
+import { hashManagementKey, isBookingCodeCollision, randomBookingCode, randomManagementKey } from "./src/server/bookingManagement.js";
 import {
   calculateAvailability,
   validateBookingSlot,
@@ -133,6 +135,7 @@ import {
 
 const app = express();
 const PORT = 3000;
+
 
 app.set('trust proxy', 1);
 
@@ -399,21 +402,22 @@ app.post(["/api/turnos", "/api/appointments"], async (req, res) => {
       browserId: browserId ? String(browserId).trim() : undefined
     });
 
-    const codeNumber = Math.floor(1000 + Math.random() * 9000);
-    const bookingCode = `GWEN-${codeNumber}`;
-
     const rawPromoCode = descuentoCodigo ?? descuento_codigo ?? req.body.codigoPromocion ?? req.body.codigo_promocion ?? req.body.codigoPromo ?? req.body.promoCode ?? (discountConflictCheck.hasPromotion ? req.body.codigo : undefined);
     const resolvedDescuentoCodigo = typeof rawPromoCode === 'string' && rawPromoCode.trim().length > 0 ? rawPromoCode.trim() : undefined;
     const rawDiscountId = descuentoId ?? descuento_id ?? req.body.clientBenefitId ?? req.body.client_benefit_id ?? req.body.beneficioId ?? req.body.beneficio_id ?? req.body.promocionId ?? req.body.promocion_id ?? req.body.promotionId;
     const resolvedDescuentoId = typeof rawDiscountId === 'string' && rawDiscountId.trim().length > 0 ? rawDiscountId.trim() : undefined;
     const resolvedDescuentoTipo = descuentoTipo || descuento_tipo || (resolvedDescuentoCodigo ? 'promocion' : (resolvedDescuentoId ? 'beneficio' : undefined));
 
+    const appointmentId = `apt-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+    const managementKey = randomManagementKey();
+    const managementKeyHash = hashManagementKey(appointmentId, managementKey);
+
     const newAppointment: Appointment = {
-      id: `apt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: appointmentId,
       clienteId: client.id,
       profesionalId: validation.profesionalId,
       profesionalNombre: validation.profesionalNombre,
-      codigo: bookingCode,
+      codigo: '',
       nombre: String(nombre).trim(),
       apellido: String(apellido).trim(),
       telefono: String(telefono).trim(),
@@ -437,7 +441,18 @@ app.post(["/api/turnos", "/api/appointments"], async (req, res) => {
       updatedAt: new Date().toISOString()
     };
 
-    const saved = await createAppointment(newAppointment);
+    let saved: Appointment | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      newAppointment.codigo = randomBookingCode();
+      try {
+        saved = await createAppointment(newAppointment, { managementKeyHash });
+        break;
+      } catch (error: any) {
+        if (!isBookingCodeCollision(error) || attempt === 2) throw error;
+      }
+    }
+    if (!saved) throw new Error('No se pudo generar un código de reserva único.');
+    const bookingCode = saved.codigo;
 
     const studioWhatsapp = studioConfig.whatsapp.replace(/[^0-9]/g, "");
     const finalAmount = saved.precioFinal != null ? saved.precioFinal : saved.precio;
@@ -463,6 +478,7 @@ app.post(["/api/turnos", "/api/appointments"], async (req, res) => {
     res.status(201).json({
       message: "Turno reservado exitosamente.",
       turno: saved,
+      managementKey,
       whatsappUrl
     });
   } catch (error: any) {

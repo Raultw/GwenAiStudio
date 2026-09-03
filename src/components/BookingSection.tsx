@@ -109,6 +109,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [confirmedBooking, setConfirmedBooking] = useState<{
     turno: Appointment;
+    managementKey: string;
     whatsappUrl: string;
   } | null>(null);
 
@@ -595,6 +596,7 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
 
       setConfirmedBooking({
         turno: data.turno,
+        managementKey: data.managementKey,
         whatsappUrl: data.whatsappUrl
       });
 
@@ -692,6 +694,18 @@ export const BookingSection: React.FC<BookingSectionProps> = ({
                 <span className="font-mono font-bold text-[#8E4455] text-sm bg-white px-2.5 py-0.5 rounded-md border border-[#E8DCD5]">
                   {confirmedBooking.turno.codigo}
                 </span>
+              </div>
+
+              <div className="rounded-xl border border-[#D9C9BF] bg-white p-4 space-y-3">
+                <div>
+                  <span className="text-[11px] text-[#8C7A70] uppercase tracking-wider block">Clave de gestión</span>
+                  <span className="font-mono font-bold text-[#241E1A] text-lg tracking-widest">
+                    {confirmedBooking.managementKey}
+                  </span>
+                </div>
+                <p className="text-xs leading-relaxed text-[#5A4B43]">
+                  Guardá el código de reserva y esta clave, o tomá una captura de esta pantalla. Los vas a necesitar si querés gestionar o cancelar el turno.
+                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-4 text-xs sm:text-sm">

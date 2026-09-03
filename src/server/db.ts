@@ -3624,21 +3624,40 @@ export async function updateUser(id: string, updates: Partial<User> & { password
   if (updates.password !== undefined || updates.passwordHash !== undefined || updates.salt !== undefined || updates.mustChangePassword !== undefined) {
     throw new Error('Las credenciales solo pueden modificarse mediante los flujos de contraseña autorizados.');
   }
-  if (updates.activo === false || (updates.rol && updates.rol !== 'superadmin')) {
-    const currUser = await getUserById(id);
-    if (currUser && currUser.rol === 'superadmin' && currUser.activo) {
-      const isLast = await isLastActiveSuperadmin(id);
-      if (isLast) {
-        throw new Error('No se puede desactivar o degradar el último superadministrador activo del sistema.');
-      }
-    }
-  }
-
   const now = new Date().toISOString();
+  const canReduceActiveSuperadmins = updates.activo === false || (updates.rol !== undefined && updates.rol !== 'superadmin');
 
   if (isPostgresConnected && pgPool) {
+    let client;
     try {
-      await pgPool.query(`
+      client = await pgPool.connect();
+      await client.query('BEGIN');
+      if (canReduceActiveSuperadmins) {
+        await client.query('SELECT pg_advisory_xact_lock(992837465)');
+      }
+
+      const currentResult = await client.query(
+        `SELECT id, username, email, rol, profesional_id, activo, nombre,
+                must_change_password, created_at, updated_at
+         FROM users WHERE id = $1 FOR UPDATE`,
+        [id]
+      );
+      if (currentResult.rows.length === 0) {
+        await client.query('COMMIT');
+        return null;
+      }
+
+      const current = currentResult.rows[0];
+      if (canReduceActiveSuperadmins && current.rol === 'superadmin' && Boolean(current.activo)) {
+        const countResult = await client.query(
+          `SELECT COUNT(*)::int AS count FROM users WHERE rol = 'superadmin' AND activo = true`
+        );
+        if (Number(countResult.rows[0]?.count || 0) <= 1) {
+          throw new Error('No se puede desactivar o degradar el último superadministrador activo del sistema.');
+        }
+      }
+
+      const updatedResult = await client.query(`
         UPDATE users
         SET username = COALESCE($2, username),
             email = COALESCE($3, email),
@@ -3648,6 +3667,8 @@ export async function updateUser(id: string, updates: Partial<User> & { password
             nombre = COALESCE($7, nombre),
             updated_at = NOW()
         WHERE id = $1
+        RETURNING id, username, email, rol, profesional_id, activo, nombre,
+                  must_change_password, created_at, updated_at
       `, [
         id,
         updates.username !== undefined ? updates.username.trim() : null,
@@ -3657,13 +3678,46 @@ export async function updateUser(id: string, updates: Partial<User> & { password
         updates.activo !== undefined ? updates.activo : null,
         updates.nombre !== undefined ? updates.nombre : null
       ]);
+      await client.query('COMMIT');
+      const row = updatedResult.rows[0];
+      return {
+        id: row.id,
+        username: row.username || undefined,
+        email: row.email || undefined,
+        rol: row.rol as UserRole,
+        profesionalId: row.profesional_id || undefined,
+        activo: Boolean(row.activo),
+        nombre: row.nombre || undefined,
+        mustChangePassword: Boolean(row.must_change_password),
+        createdAt: row.created_at ? new Date(row.created_at).toISOString() : now,
+        updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : now
+      };
     } catch (err) {
+      if (client) {
+        try { await client.query('ROLLBACK'); } catch {}
+      }
+      if (err instanceof Error && err.message === 'No se puede desactivar o degradar el último superadministrador activo del sistema.') {
+        throw err;
+      }
       throw new Error('No se pudo actualizar el usuario.');
+    } finally {
+      client?.release();
     }
   }
 
-  const idx = memoryDb.users.findIndex(u => u.id === id);
-  if (idx !== -1) {
+  await bootstrapMutex;
+  let releaseMutex = () => {};
+  bootstrapMutex = new Promise<void>((resolve) => { releaseMutex = resolve; });
+  try {
+    const idx = memoryDb.users.findIndex(u => u.id === id);
+    if (idx === -1) return null;
+    const current = memoryDb.users[idx];
+    if (canReduceActiveSuperadmins && current.rol === 'superadmin' && current.activo) {
+      const activeSuperadmins = memoryDb.users.filter(u => u.rol === 'superadmin' && u.activo);
+      if (activeSuperadmins.length <= 1) {
+        throw new Error('No se puede desactivar o degradar el último superadministrador activo del sistema.');
+      }
+    }
     const { password: _password, passwordHash: _hash, salt: _salt, mustChangePassword: _mustChange, ...safeUpdates } = updates;
     const { password: _legacyPassword, ...storedUser } = memoryDb.users[idx] as User & { password?: string };
     memoryDb.users[idx] = {
@@ -3673,9 +3727,10 @@ export async function updateUser(id: string, updates: Partial<User> & { password
       updatedAt: now
     };
     saveLocalFileDb();
+    return getUserById(id);
+  } finally {
+    releaseMutex();
   }
-
-  return getUserById(id);
 }
 
 export async function deleteUser(id: string): Promise<boolean> {

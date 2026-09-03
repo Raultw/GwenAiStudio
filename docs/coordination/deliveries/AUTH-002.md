@@ -7,6 +7,12 @@
 
 ## Corrección posterior a revisión — 2026-09-03
 
+### Protección concurrente del último superadmin
+
+`updateUser` ahora usa un único cliente PostgreSQL con BEGIN, advisory lock compartido con el dominio de bootstrap, fila objetivo FOR UPDATE, conteo autoritativo, UPDATE RETURNING y COMMIT/ROLLBACK/release. Si la mutación puede reducir superadmins activos, ninguna segunda operación concurrente puede aprobar basándose en una lectura anterior. PostgreSQL retorna directamente el resultado y no muta el fallback en memoria. El modo memoria serializa estas mutaciones con el mutex existente y revalida antes de mutar.
+
+Nueva suite real extraída `test_auth002_superadmin_atomic.cjs`: 7 casos con SQL/memoria simulados; último activo rechazado, actualización con dos permitida, rollback, actualización no riesgosa, dos degradaciones simultáneas en memoria, rechazo del último y campos de credenciales. Todas las suites AUTH-002 suman 66 casos aislados aprobados; tsc y diff-check pasan. No acredita PostgreSQL real. El bootstrap con conexión única sigue pendiente y no fue modificado en este bloque.
+
 Codex completó directamente las correcciones solicitadas después de que Antigravity CLI rechazara repetidamente lecturas ya autorizadas. No se desactivaron controles globales ni se usó `dangerously-skip-permissions`.
 
 - POST `/api/users` impone `mustChangePassword: true` para toda cuenta creada administrativamente, aunque se envíe contraseña explícita o un flag falso.

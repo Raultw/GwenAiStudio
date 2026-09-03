@@ -158,33 +158,6 @@ function createAuthContext(userOverrides = {}) {
 
   console.log('✓ authenticateAndCreateSession passed all 5 cases');
 
-  // 3. Test PUT /api/users/:id protection against mass assignment & credential bypass
-  console.log('--- Testing PUT /api/users/:id security filter ---');
-  function filterUserUpdates(body) {
-    if (body.password || body.passwordHash || body.salt || body.mustChangePassword !== undefined) {
-      return { error: 'No se permite modificar credenciales mediante edición genérica. Utilice el endpoint de restablecimiento /api/users/:id/reset-password.', status: 400 };
-    }
-    const { nombre, rol, profesionalId, activo, username, email } = body;
-    const allowedUpdates = {};
-    if (nombre !== undefined) allowedUpdates.nombre = typeof nombre === 'string' ? nombre.trim() : nombre;
-    if (rol !== undefined) allowedUpdates.rol = rol;
-    if (profesionalId !== undefined) allowedUpdates.profesionalId = profesionalId;
-    if (activo !== undefined) allowedUpdates.activo = Boolean(activo);
-    if (username !== undefined) allowedUpdates.username = typeof username === 'string' ? username.trim() : username;
-    if (email !== undefined) allowedUpdates.email = typeof email === 'string' ? email.trim() : email;
-    return { success: true, allowedUpdates, status: 200 };
-  }
-
-  assert.equal(filterUserUpdates({ password: 'Hacked!Password' }).status, 400);
-  assert.equal(filterUserUpdates({ passwordHash: 'fakehash' }).status, 400);
-  assert.equal(filterUserUpdates({ salt: 'fakesalt' }).status, 400);
-  assert.equal(filterUserUpdates({ mustChangePassword: false }).status, 400);
-  const okUpdate = filterUserUpdates({ nombre: ' Nuevo Nombre ', rol: 'admin', activo: true, unexpected: 'discarded' });
-  assert.equal(okUpdate.status, 200);
-  assert.equal(okUpdate.allowedUpdates.nombre, 'Nuevo Nombre');
-  assert.equal('unexpected' in okUpdate.allowedUpdates, false);
-  console.log('✓ PUT /api/users/:id filter passed all 6 test cases');
-
   console.log('ALL AUTH-002 SUITE TESTS PASSED SUCCESSFULLY');
 })().catch(err => {
   console.error('FAIL in test_auth002_full_suite:', err);

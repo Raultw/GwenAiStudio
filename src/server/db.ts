@@ -3621,6 +3621,9 @@ export async function createUser(userData: {
 }
 
 export async function updateUser(id: string, updates: Partial<User> & { password?: string }): Promise<User | null> {
+  if (updates.password !== undefined || updates.passwordHash !== undefined || updates.salt !== undefined || updates.mustChangePassword !== undefined) {
+    throw new Error('Las credenciales solo pueden modificarse mediante los flujos de contraseña autorizados.');
+  }
   if (updates.activo === false || (updates.rol && updates.rol !== 'superadmin')) {
     const currUser = await getUserById(id);
     if (currUser && currUser.rol === 'superadmin' && currUser.activo) {
@@ -3631,20 +3634,7 @@ export async function updateUser(id: string, updates: Partial<User> & { password
     }
   }
 
-  if (updates.password) {
-    const policy = validatePasswordPolicy(updates.password);
-    if (!policy.valid) {
-      throw new Error(policy.error);
-    }
-  }
-
   const now = new Date().toISOString();
-  let hashUpdates: { passwordHash?: string; salt?: string } = {};
-
-  if (updates.password) {
-    const { hash, salt } = hashPassword(updates.password);
-    hashUpdates = { passwordHash: hash, salt };
-  }
 
   if (isPostgresConnected && pgPool) {
     try {
@@ -3652,26 +3642,20 @@ export async function updateUser(id: string, updates: Partial<User> & { password
         UPDATE users
         SET username = COALESCE($2, username),
             email = COALESCE($3, email),
-            password_hash = COALESCE($4, password_hash),
-            salt = COALESCE($5, salt),
-            rol = COALESCE($6, rol),
-            profesional_id = COALESCE($7, profesional_id),
-            activo = COALESCE($8, activo),
-            nombre = COALESCE($9, nombre),
-            must_change_password = COALESCE($10, must_change_password),
+            rol = COALESCE($4, rol),
+            profesional_id = COALESCE($5, profesional_id),
+            activo = COALESCE($6, activo),
+            nombre = COALESCE($7, nombre),
             updated_at = NOW()
         WHERE id = $1
       `, [
         id,
         updates.username !== undefined ? updates.username.trim() : null,
         updates.email ? normalizeEmail(updates.email) : null,
-        hashUpdates.passwordHash || null,
-        hashUpdates.salt || null,
         updates.rol || null,
         updates.profesionalId !== undefined ? updates.profesionalId : null,
         updates.activo !== undefined ? updates.activo : null,
-        updates.nombre !== undefined ? updates.nombre : null,
-        updates.mustChangePassword !== undefined ? updates.mustChangePassword : null
+        updates.nombre !== undefined ? updates.nombre : null
       ]);
     } catch (err) {
       throw new Error('No se pudo actualizar el usuario.');
@@ -3680,13 +3664,12 @@ export async function updateUser(id: string, updates: Partial<User> & { password
 
   const idx = memoryDb.users.findIndex(u => u.id === id);
   if (idx !== -1) {
-    const { password: _password, ...safeUpdates } = updates;
+    const { password: _password, passwordHash: _hash, salt: _salt, mustChangePassword: _mustChange, ...safeUpdates } = updates;
     const { password: _legacyPassword, ...storedUser } = memoryDb.users[idx] as User & { password?: string };
     memoryDb.users[idx] = {
       ...storedUser,
       ...safeUpdates,
       ...(updates.username ? { username: updates.username.trim() } : {}),
-      ...hashUpdates,
       updatedAt: now
     };
     saveLocalFileDb();

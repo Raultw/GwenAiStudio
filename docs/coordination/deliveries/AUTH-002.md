@@ -5,6 +5,18 @@
 - **Estado de la entrega:** `REVIEW` (pendiente de revisión, integración en `main` y validación en Render)
 - **Modo de coordinación:** Manual (automatización con Codex pausada por decisión del propietario)
 
+## Corrección posterior a revisión — 2026-09-03
+
+Codex completó directamente las correcciones solicitadas después de que Antigravity CLI rechazara repetidamente lecturas ya autorizadas. No se desactivaron controles globales ni se usó `dangerously-skip-permissions`.
+
+- POST `/api/users` impone `mustChangePassword: true` para toda cuenta creada administrativamente, aunque se envíe contraseña explícita o un flag falso.
+- `updateUser` rechaza password, hash, salt y mustChangePassword; las credenciales quedan exclusivamente en los flujos atómicos dedicados.
+- La administración de profesionales verifica todas las respuestas HTTP de alta/edición/reset de cuenta, informa éxito parcial con precisión y no recorta contraseñas.
+- La UI aclara que la contraseña temporal es opcional si existe configuración privada, que el email no es obligatorio y muestra el username devuelto tras éxito.
+- Se eliminaron aserciones sobre una copia manual del filtro. Nuevas suites extraen y ejecutan los handlers reales de POST/PUT de usuarios.
+
+Evidencia local aislada: 8 persistencia, 4 provisión real, 5 perfil real, 5 login memoria, 17 reset/cambio atómico, 15 handler de cambio y 5 sesiones; todas exit 0. `tsc --noEmit`, Vite build, esbuild servidor y `git diff --check`: exit 0. No PostgreSQL, navegador, Render, Neon, datos ni red. El aviso de bundle >500 kB es no bloqueante y previo al alcance. Protección concurrente del último superadmin sigue pendiente; no declarar AUTH-002 cerrada.
+
 ---
 
 ## 1. Tarea que resuelve

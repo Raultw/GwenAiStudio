@@ -1287,7 +1287,7 @@ app.get("/api/users", requireAdmin, async (req, res) => {
 // 24. POST /api/users (Admin)
 app.post("/api/users", requireAdmin, async (req, res) => {
   try {
-    let { username, email, password, rol, profesionalId, nombre, activo, mustChangePassword } = req.body;
+    let { username, email, password, rol, profesionalId, nombre, activo } = req.body;
 
     if (!username && nombre) {
       const existingUsers = await getUsers(false);
@@ -1302,7 +1302,6 @@ app.post("/api/users", requireAdmin, async (req, res) => {
       const defaultTemp = getEmployeeDefaultTempPassword();
       if (defaultTemp) {
         password = defaultTemp;
-        mustChangePassword = true;
       }
     }
 
@@ -1319,7 +1318,8 @@ app.post("/api/users", requireAdmin, async (req, res) => {
       profesionalId,
       nombre: nombre && typeof nombre === 'string' ? nombre.trim() : undefined,
       activo: activo !== false,
-      mustChangePassword: mustChangePassword !== undefined ? Boolean(mustChangePassword) : false
+      // El body no puede evitar el cambio obligatorio de toda cuenta provisionada.
+      mustChangePassword: true
     });
     res.status(201).json({
       id: created.id,

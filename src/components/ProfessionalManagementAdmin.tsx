@@ -201,6 +201,11 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
       return;
     }
 
+    const readApiError = async (response: Response, fallback: string) => {
+      const body = await response.json().catch(() => ({}));
+      return typeof body?.error === 'string' && body.error ? body.error : fallback;
+    };
+
     setIsSaving(true);
     try {
       const profPayload = {
@@ -248,11 +253,12 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
       }
 
       // Handle user account association if requested
+      let accountUsername: string | undefined;
       if (enableUserAuth) {
         const existingUser = usersList.find(u => u.profesionalId === savedProf.id || (formEmail.trim() && u.email === formEmail.trim()));
         if (existingUser) {
           // Update user
-          await fetch(`/api/users/${existingUser.id}`, {
+          const updateUserRes = await fetch(`/api/users/${existingUser.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
@@ -264,38 +270,50 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
               email: formEmail.trim() || undefined
             })
           });
-          if (formUserPassword.trim()) {
-            await fetch(`/api/users/${existingUser.id}/reset-password`, {
+          if (!updateUserRes.ok) {
+            throw new Error(`El profesional fue guardado, pero no se pudo actualizar su cuenta: ${await readApiError(updateUserRes, 'Error de cuenta')}`);
+          }
+          accountUsername = existingUser.username;
+          if (formUserPassword) {
+            const resetRes = await fetch(`/api/users/${existingUser.id}/reset-password`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
               body: JSON.stringify({
-                newPassword: formUserPassword.trim()
+                newPassword: formUserPassword
               })
             });
+            if (!resetRes.ok) {
+              throw new Error(`El profesional y su cuenta fueron guardados, pero no se pudo restablecer la contraseña: ${await readApiError(resetRes, 'Error de contraseña')}`);
+            }
           }
         } else {
           // Create user
-          await fetch('/api/users', {
+          const createUserRes = await fetch('/api/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({
               email: formEmail.trim() || undefined,
-              password: formUserPassword.trim() || undefined,
+              password: formUserPassword || undefined,
               rol: formUserRole,
               nombre: `${formNombre.trim()} ${formApellido.trim()}`,
               profesionalId: savedProf.id,
               activo: formActivo
             })
           });
+          if (!createUserRes.ok) {
+            throw new Error(`El profesional fue guardado, pero no se pudo crear su cuenta: ${await readApiError(createUserRes, 'Error de cuenta')}`);
+          }
+          const createdUser = await createUserRes.json();
+          accountUsername = createdUser.username;
         }
       }
 
       setSuccessMsg(
         editingProf
-          ? `¡Profesional "${savedProf.nombre} ${savedProf.apellido}" actualizada con éxito!`
-          : `¡Profesional "${savedProf.nombre} ${savedProf.apellido}" creada con éxito!`
+          ? `¡Profesional "${savedProf.nombre} ${savedProf.apellido}" actualizada con éxito!${accountUsername ? ` Usuario: ${accountUsername}.` : ''}`
+          : `¡Profesional "${savedProf.nombre} ${savedProf.apellido}" creada con éxito!${accountUsername ? ` Usuario generado: ${accountUsername}.` : ''}`
       );
       setTimeout(() => setSuccessMsg(null), 5000);
       setIsModalOpen(false);
@@ -850,15 +868,18 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
 
                       <div>
                         <label className="block text-xs font-semibold text-[#241E1A] mb-1">
-                          {editingProf ? 'Nueva Contraseña (Opcional)' : 'Contraseña de Acceso *'}
+                          {editingProf ? 'Nueva contraseña temporal (opcional)' : 'Contraseña temporal (opcional)'}
                         </label>
                         <input
                           type="password"
                           value={formUserPassword}
                           onChange={(e) => setFormUserPassword(e.target.value)}
-                          placeholder={editingProf ? 'Dejar vacío para no cambiar' : 'Mínimo 6 caracteres'}
+                          placeholder={editingProf ? 'Dejar vacío para no cambiar' : 'Vacío: usar la clave temporal configurada'}
                           className="w-full px-3.5 py-2 rounded-xl bg-[#FAF7F2] border border-[#D9C9BF] text-xs text-[#241E1A] focus:outline-none focus:border-[#8E4455]"
                         />
+                        <p className="mt-1 text-[11px] leading-relaxed text-[#8C7A70]">
+                          Deberá elegir una contraseña nueva al ingresar. El email no es obligatorio.
+                        </p>
                       </div>
                     </div>
                   </div>

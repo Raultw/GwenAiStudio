@@ -20,6 +20,8 @@ Actualización posterior: propietario autorizó continuidad autónoma del plan y
 
 ### Revisión manual 2026-09-03 (prevalece sobre estados anteriores)
 
+BOOK-003 ampliado explícitamente por el propietario: código + clave de gestión en confirmación, aviso guardar/captura y email con datos del turno y enlace directo seguro de cancelación. Ver tasks/BOOK-003.md y roadmap 7/12. No basta con incluir un enlace si su pantalla de confirmación aún no existe. Continúa después de AUTH-002.
+
 AUTH-002: **CHANGES_REQUESTED** sobre 2c43de1. Suites existentes y tsc/build aprobados; regresión adicional de cambio inicial falla. Corregir provisión con contraseña explícita, respuestas HTTP ignoradas en UI, textos/username y discrepancias de pruebas/entrega. Ver reviews/AUTH-002-manual-20260903.md. Automatización PAUSADA; continuidad manual autorizada. Sin merge ni QA desplegado. Seguridad concurrente del último superadmin pendiente. BOOK-003 permanece siguiente etapa, no iniciada.
 
 - Auditoría local: 75 archivos versionados, árbol limpio y baseline `055e5f6`.

@@ -1159,9 +1159,6 @@ export async function initDatabase() {
           ]);
         }
 
-        // Check and execute superadmin bootstrap if no active superadmin exists
-        await checkAndExecuteSuperadminBootstrap();
-
         // Seed professional_services relations if empty
         const psCount = await client.query('SELECT COUNT(*) FROM professional_services');
         if (parseInt(psCount.rows[0].count, 10) === 0) {
@@ -1205,6 +1202,9 @@ export async function initDatabase() {
       } finally {
         client.release();
       }
+      // Ejecutar el bootstrap después de publicar el estado PostgreSQL y liberar
+      // el cliente de inicialización. El bootstrap administra su propia transacción.
+      await checkAndExecuteSuperadminBootstrap();
     } catch (err) {
       console.error('❌ Could not connect to PostgreSQL:', err);
       if (isProd) {
@@ -3355,15 +3355,59 @@ export async function checkAndExecuteSuperadminBootstrap() {
   try {
     let superadminCount = 0;
     if (isPostgresConnected && pgPool) {
+      let client;
       try {
-        await pgPool.query('BEGIN');
-        await pgPool.query('SELECT pg_advisory_xact_lock(992837465)');
-        const res = await pgPool.query("SELECT COUNT(*) FROM users WHERE rol = 'superadmin'");
+        client = await pgPool.connect();
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock(992837465)');
+        const res = await client.query("SELECT COUNT(*)::int AS count FROM users WHERE rol = 'superadmin'");
         superadminCount = parseInt(res.rows[0].count, 10);
-        await pgPool.query('COMMIT');
+        const bUser = process.env.SUPERADMIN_BOOTSTRAP_USERNAME;
+        const bPass = process.env.SUPERADMIN_BOOTSTRAP_PASSWORD;
+        const bName = process.env.SUPERADMIN_BOOTSTRAP_DISPLAY_NAME;
+
+        if (superadminCount === 0) {
+          if (process.env.NODE_ENV === 'production' && (!bUser || !bPass)) {
+            console.warn('⚠️ ADVERTENCIA: No existen superadministradores en la base de datos y faltan variables de bootstrap.');
+          }
+          if (bUser && bPass) {
+            const policyCheck = validatePasswordPolicy(bPass);
+            if (!policyCheck.valid) {
+              await client.query('COMMIT');
+              console.error(`❌ Error: Contraseña de bootstrap no cumple requisitos de política: ${policyCheck.error}`);
+              return;
+            }
+            const username = bUser.trim();
+            const { hash, salt } = hashPassword(bPass);
+            const userId = crypto.randomUUID();
+            const auditId = crypto.randomUUID();
+            const now = new Date().toISOString();
+            await client.query(
+              `INSERT INTO users
+                 (id, username, email, password_hash, salt, rol, profesional_id, activo, nombre, must_change_password, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, 'superadmin', NULL, true, $6, false, $7, $7)`,
+              [userId, username, `${username}@gwennails.com`, hash, salt, bName?.trim() || 'Super Administrador', now]
+            );
+            await client.query(
+              `INSERT INTO audit_logs (id, actor_id, actor_name, target_user_id, evento, fecha, origen, metadata)
+               VALUES ($1, NULL, NULL, $2, 'superadmin_bootstrapped', $3, 'system', $4)`,
+              [auditId, userId, now, JSON.stringify({ username })]
+            );
+            console.log(`[BOOTSTRAP] Superadministrador inicial creado exitosamente.`);
+            console.log(`[BOOTSTRAP AVISO] Retire las variables de bootstrap de su configuración de entorno por seguridad.`);
+          }
+        } else if (bUser) {
+          console.log(`[BOOTSTRAP] Ya existe al menos un superadministrador registrado (activo o inactivo). Ignorando variables de bootstrap.`);
+        }
+        await client.query('COMMIT');
+        return;
       } catch (err) {
-        try { await pgPool.query('ROLLBACK'); } catch {}
-        console.error('Error in postgres bootstrap check:', err);
+        if (client) {
+          try { await client.query('ROLLBACK'); } catch {}
+        }
+        throw new Error('No se pudo verificar o ejecutar el bootstrap de superadministrador.');
+      } finally {
+        client?.release();
       }
     } else {
       superadminCount = memoryDb.users.filter(u => u.rol === 'superadmin').length;

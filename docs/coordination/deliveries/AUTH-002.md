@@ -9,6 +9,12 @@
 
 ### Protección concurrente del último superadmin
 
+### Bootstrap PostgreSQL con conexión única
+
+El bootstrap se ejecuta después de establecer el modo PostgreSQL y liberar el cliente de inicialización. `checkAndExecuteSuperadminBootstrap` obtiene su propio cliente y usa ese mismo cliente para BEGIN, advisory lock compartido, conteo de cualquier superadmin activo o inactivo, INSERT de usuario, INSERT de auditoría y COMMIT/ROLLBACK. Si existe cualquiera, no crea otro; si falla PostgreSQL, no continúa en memoria. No registra usuario, hash, salt ni contraseña. El modo memoria conserva el mutex previo.
+
+Nueva suite `test_auth002_bootstrap_atomic.cjs`: 6 casos de control de flujo con conexión simulada, existencia previa, rollback de auditoría, fallo de conexión, configuración ausente y orden correcto desde initDatabase. Junto con las 66 anteriores: 72 casos aislados aprobados, tsc y diff-check exitosos. Sin PostgreSQL real ni QA desplegado.
+
 `updateUser` ahora usa un único cliente PostgreSQL con BEGIN, advisory lock compartido con el dominio de bootstrap, fila objetivo FOR UPDATE, conteo autoritativo, UPDATE RETURNING y COMMIT/ROLLBACK/release. Si la mutación puede reducir superadmins activos, ninguna segunda operación concurrente puede aprobar basándose en una lectura anterior. PostgreSQL retorna directamente el resultado y no muta el fallback en memoria. El modo memoria serializa estas mutaciones con el mutex existente y revalida antes de mutar.
 
 Nueva suite real extraída `test_auth002_superadmin_atomic.cjs`: 7 casos con SQL/memoria simulados; último activo rechazado, actualización con dos permitida, rollback, actualización no riesgosa, dos degradaciones simultáneas en memoria, rechazo del último y campos de credenciales. Todas las suites AUTH-002 suman 66 casos aislados aprobados; tsc y diff-check pasan. No acredita PostgreSQL real. El bootstrap con conexión única sigue pendiente y no fue modificado en este bloque.

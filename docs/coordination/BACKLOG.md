@@ -18,6 +18,10 @@ Actualización posterior: propietario autorizó continuidad autónoma del plan y
 
 ## Evidencia y límites
 
+### Revisión manual 2026-09-03 (prevalece sobre estados anteriores)
+
+AUTH-002: **CHANGES_REQUESTED** sobre 2c43de1. Suites existentes y tsc/build aprobados; regresión adicional de cambio inicial falla. Corregir provisión con contraseña explícita, respuestas HTTP ignoradas en UI, textos/username y discrepancias de pruebas/entrega. Ver reviews/AUTH-002-manual-20260903.md. Automatización PAUSADA; continuidad manual autorizada. Sin merge ni QA desplegado. Seguridad concurrente del último superadmin pendiente. BOOK-003 permanece siguiente etapa, no iniciada.
+
 - Auditoría local: 75 archivos versionados, árbol limpio y baseline `055e5f6`.
 - `data/gwen_db.json` contiene credenciales, hashes, sesiones y contactos. No copiar valores a tareas ni comentarios.
 - Los reportes anteriores de suites exitosas no sustituyen pruebas sobre este baseline.

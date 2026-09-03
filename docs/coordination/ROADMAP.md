@@ -1,6 +1,6 @@
 # Gwen Nails — Roadmap de soluciones y mejoras
 
-Actualizado: 2026-09-02. Lista de seguimiento para el propietario. Mantener numeración estable y mostrar la lista completa cuando se cierre un ítem.
+Actualizado: 2026-09-03. Lista de seguimiento para el propietario. Mantener numeración estable y mostrar la lista completa cuando se cierre un ítem. Coordinación automática PAUSADA; revisión manual retomada.
 
 Estados: ✅ cerrado y verificado en su entorno correspondiente; 🧪 implementado y probado parcialmente, pendiente de integración/validación final; 🔄 en curso; ⏳ pendiente; 💬 decisión pendiente.
 
@@ -12,7 +12,7 @@ Para una funcionalidad de la aplicación, cerrado requiere revisión aprobada, i
 2. 🧪 **Base de seguridad y pruebas aisladas.** Exclusiones/fixture seguro y suite aislada revisados. Pendientes integración, resolver dependencia que bloquea TypeScript y revisar datos sensibles aún versionados. Cualquier saneamiento destructivo del historial requiere autorización específica.
 3. 🧪 **Reglas de contraseña y guía visual.** 8–16 caracteres, condiciones visibles en verde, confirmación, rechazo de secuencias y reutilización, protección contra persistencia de contraseña en texto plano. Pendientes integración y QA desplegado.
 4. 🔄 **Cambio y restablecimiento de contraseña seguros.** Reset y cambio propio comparten operación transaccional en fee887e; 17 casos SQL/fs simulados y 15 de handler aprobados. Pendientes competencia login/reset, rutas alternativas y pruebas PostgreSQL/QA desplegado.
-5. ⏳ **Cuentas de empleados y “Mi cuenta”.** Username inicial+apellido con colisiones controladas; email no obligatorio; clave temporal común desde configuración privada; cambio obligatorio; reset por administrador; cambio voluntario con actual/nueva/confirmación. Mantener protección del superadmin.
+5. 🔄 **Cuentas de empleados y “Mi cuenta”.** Entrega 2c43de1 incorpora username automático, email opcional y Mi cuenta. Revisión solicita corregir cambio inicial eludible, errores de creación/reset ocultados por UI y texto de contraseña obsoleto. Protección concurrente del superadmin y QA pendientes.
 6. 🔄 **Sesión persistente y permisos de Tipos de beneficio.** Completar matriz admin/superadmin/profesional, recarga/logout/expiración, lista vacía frente a error real y creación/edición. QA base Render y casos locales pasaron; falta cierre completo sobre versión integrada.
 7. ⏳ **Confirmación de reserva por email y datos de gestión.** Verificar envío real a casilla propia autorizada; mostrar código, clave y aviso de guardado/captura; incluirlos en email. Conservar estética de confirmación.
 8. ⏳ **Cancelación administrativa y compensación opcional.** Revisar cancelación individual y regresión por excepciones: beneficio por turno, plantilla común por lote y exclusión individual, vigencia desde emisión, aviso genérico con/sin beneficio. Mostrar teléfono y ausencia de email; no revelar motivo interno ni activar WhatsApp automático.
@@ -23,6 +23,8 @@ Para una funcionalidad de la aplicación, cerrado requiere revisión aprobada, i
 13. ⏳ **Auditoría integral y cierre de los pendientes de seguridad.** Recorrer reservas/descuentos/cancelaciones, fechas argentinas, notificaciones, concurrencia PostgreSQL aislada, permisos y protección de información. Revisar exposición de endpoints, credenciales legadas y dependencia de testing. Corregir por prioridad; no posponer un hallazgo urgente hasta este último punto.
 
 ## Evidencia y seguimiento
+
+- Revisión manual 2026-09-03: entrega 2c43de1 en CHANGES_REQUESTED; ver reviews/AUTH-002-manual-20260903.md. Cinco suites existentes pasan, tsc y build cliente/servidor pasan. Nueva regresión confirma que contraseña explícita evita cambio inicial. Login/reset y permisos aún requieren pruebas reales; ningún ítem funcional cerrado. Esto actualiza el fallo histórico de node-fetch mencionado abajo, ya resuelto en esta entrega.
 
 - 1: automatización activa a cinco minutos, disparos observados y diagnóstico de lectura autorizado. No garantiza ejecución continua si app/equipo/cuotas no lo permiten.
 - 2: SEC-001 dd360bbc; SEC-002 52db6fd, 39 pruebas aisladas. TypeScript global pendiente por node-fetch ausente en test_booking_concurrency.ts. No confundir .gitignore con eliminación de información ya versionada.

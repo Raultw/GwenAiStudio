@@ -206,6 +206,7 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
       return typeof body?.error === 'string' && body.error ? body.error : fallback;
     };
 
+    let professionalWasSaved = false;
     setIsSaving(true);
     try {
       const profPayload = {
@@ -251,6 +252,7 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
         }
         savedProf = await res.json();
       }
+      professionalWasSaved = true;
 
       // Handle user account association if requested
       let accountUsername: string | undefined;
@@ -322,6 +324,12 @@ export const ProfessionalManagementAdmin: React.FC<ProfessionalManagementAdminPr
     } catch (err: any) {
       console.error('Error saving professional:', err);
       setErrorMsg(err.message || 'Error al guardar profesional.');
+      if (professionalWasSaved) {
+        // Evita duplicar el profesional al reintentar: la cuenta se puede completar editándolo.
+        setIsModalOpen(false);
+        await loadData();
+        if (onRefreshData) onRefreshData();
+      }
     } finally {
       setIsSaving(false);
     }

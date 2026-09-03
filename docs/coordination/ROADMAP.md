@@ -25,6 +25,7 @@ Para una funcionalidad de la aplicación, cerrado requiere revisión aprobada, i
 ## Evidencia y seguimiento
 
 - Revisión manual 2026-09-03: entrega 2c43de1 en CHANGES_REQUESTED; ver reviews/AUTH-002-manual-20260903.md. Cinco suites existentes pasan, tsc y build cliente/servidor pasan. Nueva regresión confirma que contraseña explícita evita cambio inicial. Login/reset y permisos aún requieren pruebas reales; ningún ítem funcional cerrado. Esto actualiza el fallo histórico de node-fetch mencionado abajo, ya resuelto en esta entrega.
+- Correcciones 093a9d5/3026891 aprobadas en su alcance: cambio inicial no eludible, perfil sin credenciales, respuestas HTTP/éxito parcial y pruebas de handlers reales. 59 casos aislados, tsc/build pasan. AUTH-002 sigue REVIEW por superadmin concurrente, PostgreSQL y QA navegador/Render; ningún ítem funcional cerrado.
 
 - 1: automatización activa a cinco minutos, disparos observados y diagnóstico de lectura autorizado. No garantiza ejecución continua si app/equipo/cuotas no lo permiten.
 - 2: SEC-001 dd360bbc; SEC-002 52db6fd, 39 pruebas aisladas. TypeScript global pendiente por node-fetch ausente en test_booking_concurrency.ts. No confundir .gitignore con eliminación de información ya versionada.

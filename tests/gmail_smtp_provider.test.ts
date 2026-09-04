@@ -79,9 +79,15 @@ test(1, 'GmailSmtpProvider: Selección a través de EMAIL_PROVIDER_MODE=gmail_sm
 test(2, 'GmailSmtpProvider: Rechazo y error controlado en entorno de producción', async () => {
   const origMode = process.env.EMAIL_PROVIDER_MODE;
   const origNodeEnv = process.env.NODE_ENV;
+  const origDeliveryEnv = process.env.EMAIL_DELIVERY_ENV;
+  const origEnable = process.env.GMAIL_ENABLE_REAL_SEND_IN_TEST;
+  const origAllowed = process.env.GMAIL_TEST_ALLOWED_RECIPIENTS;
   try {
     process.env.EMAIL_PROVIDER_MODE = 'gmail_smtp';
     process.env.NODE_ENV = 'production';
+    delete process.env.EMAIL_DELIVERY_ENV;
+    delete process.env.GMAIL_ENABLE_REAL_SEND_IN_TEST;
+    delete process.env.GMAIL_TEST_ALLOWED_RECIPIENTS;
     let errorCaught = false;
     try {
       createEmailProvider();
@@ -96,6 +102,36 @@ test(2, 'GmailSmtpProvider: Rechazo y error controlado en entorno de producción
   } finally {
     process.env.EMAIL_PROVIDER_MODE = origMode;
     process.env.NODE_ENV = origNodeEnv;
+    process.env.EMAIL_DELIVERY_ENV = origDeliveryEnv;
+    process.env.GMAIL_ENABLE_REAL_SEND_IN_TEST = origEnable;
+    process.env.GMAIL_TEST_ALLOWED_RECIPIENTS = origAllowed;
+  }
+});
+
+test(21, 'GmailSmtpProvider: Render production permite transporte solo bajo protecciones completas de testing', async () => {
+  const previous = {
+    mode: process.env.EMAIL_PROVIDER_MODE,
+    nodeEnv: process.env.NODE_ENV,
+    deliveryEnv: process.env.EMAIL_DELIVERY_ENV,
+    enable: process.env.GMAIL_ENABLE_REAL_SEND_IN_TEST,
+    allowed: process.env.GMAIL_TEST_ALLOWED_RECIPIENTS
+  };
+  try {
+    process.env.EMAIL_PROVIDER_MODE = 'gmail_smtp';
+    process.env.NODE_ENV = 'production';
+    process.env.EMAIL_DELIVERY_ENV = 'test';
+    process.env.GMAIL_ENABLE_REAL_SEND_IN_TEST = 'true';
+    process.env.GMAIL_TEST_ALLOWED_RECIPIENTS = 'camila.test@gmail.com';
+    const provider = createEmailProvider();
+    if (!(provider instanceof GmailSmtpEmailNotificationProvider)) {
+      throw new Error(`Esperado GmailSmtpEmailNotificationProvider, obtenido: ${provider.constructor.name}`);
+    }
+  } finally {
+    process.env.EMAIL_PROVIDER_MODE = previous.mode;
+    process.env.NODE_ENV = previous.nodeEnv;
+    process.env.EMAIL_DELIVERY_ENV = previous.deliveryEnv;
+    process.env.GMAIL_ENABLE_REAL_SEND_IN_TEST = previous.enable;
+    process.env.GMAIL_TEST_ALLOWED_RECIPIENTS = previous.allowed;
   }
 });
 
